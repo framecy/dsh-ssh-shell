@@ -1,7 +1,7 @@
 {
   "name": "dsh-ssh-shell",
   "description": "DSH plugin: password SSH into a remote host — a natural-language tool (connect/exec/close/status) over a persistent ControlMaster session, plus a browser terminal panel (right-side floating) with a real PTY over WebSocket.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
