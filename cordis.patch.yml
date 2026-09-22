@@ -1,0 +1,24 @@
+# dsh-ssh-shell bundle patch: insert the plugin row.
+# Applied after the dsh-base/dsh-web-app layers; the profile's own
+# cordis.patch.yml can still override this row's config by id.
+
+- insert:
+    - id: ssh-shell
+      name: './plugins/dsh-ssh-shell/lib/index.js'
+      config:
+        # Where to keep ControlMaster sockets. Defaults to a per-profile dir
+        # under $TMPDIR so leftover sockets are reused within the OS session.
+        controlDir: ""
+        # Default per-command timeout in ms (only when not given per-call).
+        timeoutMs: 30000
+        # ControlPersist value for the master ssh. "yes" (default) keeps the
+        # master alive until it dies on its own, so an idle terminal never loses
+        # the session and never asks for the password again. Set a number of
+        # seconds to reap the master after that much inactivity.
+        controlPersistSeconds: ""
+        # Confirm every remote command before sending it? The tool always
+        # confirms unless the caller passes requireConfirmation: false for a
+        # specific call. This flag sets the default for connect/exec.
+        confirmByDefault: true
+        # Refuse to run when sshpass is missing? true = hard error; false = warn.
+        requireSshpass: true

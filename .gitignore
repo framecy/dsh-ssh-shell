@@ -1,0 +1,26 @@
+# 本地备份与临时文件 —— 不进仓库
+*.bak
+*.bak.*
+*.orig
+*.rej
+*.tmp
+
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+
+# 凭据与环境
+.env
+.env.local
+*.pem
+*.key
+
+# 运行时状态（ControlMaster socket、日志）
+*.sock
+*.log
+
+# 编辑器与系统
+.DS_Store
+.idea/
+.vscode/
