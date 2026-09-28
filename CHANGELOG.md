@@ -2,17 +2,24 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.4.1] — 未发布
+## [0.4.1] — 2026-09-28
 
-仓库规范化，功能无变化。
+开源发布，功能无变化。
 
+- 许可证由 `UNLICENSED` 改为 **Apache-2.0**，新增 `LICENSE` 文件；
+  README 的 License 段同步更新，并补上 `author` / `bugs` / `homepage`。
+- 新增 `devDependencies`（`@deepseek-ai/dsh-tools` / `ws` / `node-pty`）。
+  这三个依赖运行时由 DSH 安装自带、经 DSH 加载器解析，插件本身不需要 `npm install`；
+  声明它们是为了让 `npm test` 在干净 clone 里也能独立跑起来（此前会直接
+  `ERR_MODULE_NOT_FOUND`）。`private` 标记移除，仓库转为公开。
+- README 安装说明改写：不再假设读者已经知道 DSH 的 profile 目录布局，
+  补上 clone 与 `dsh web` 重启步骤；测试段说明首次需要 `npm install`。
 - 修复 `extractCwdFromStderr()` 的正则转义错误：`/^\\s+|\s+$/g` 实际匹配的是字面反斜杠，
   导致从 ssh stderr 提取工作目录后**残留的换行从未被修剪**，多出的空行会跟着命令结果
   一起回传给模型。已改为 `/^\s+|\s+$/g`，并有回归测试覆盖。
 - 测试从 `/tmp` 迁移进仓库 `tests/`（`/tmp` 会被系统清理，原来那三套脚本已丢失，
   而 README 仍在宣称它们存在）。新增统一入口 `npm test`，共 105 项断言。
-- 修正 `package.json`：许可证由 `MIT` 改为 `UNLICENSED`（本仓库为私有、未开源，
-  原先的 MIT 声明与实际状态不符），并补上 `repository` / `engines` / `files` / `scripts`。
+- 修正 `package.json`：补上 `repository` / `engines` / `files` / `scripts`。
 - 新增 `__test__` 内部导出，仅暴露纯函数供测试使用，不影响插件对外契约。
 
 ## [0.4.0] — 2026-09-22

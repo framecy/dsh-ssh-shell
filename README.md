@@ -18,19 +18,20 @@ DSH 插件：用密码直连远程主机的 SSH 终端。一个自然语言工�
 
 ## 安装
 
-把整个目录放进 DSH 插件目录：
+前置条件：已经装好 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness)，并且有一个能跑的 profile（下面以 `web` 为例）。
 
-```
-~/.dsh/profiles/web/plugins/dsh-ssh-shell/
-```
+**1. 把插件放进 profile 的 `plugins/` 目录**
 
-目录本身可以是软链接（开发时推荐），DSH 会顺着链接加载：
+目录本身可以是软链接，DSH 会顺着链接加载（开发时推荐，改代码即生效）：
 
 ```bash
-ln -s /path/to/dsh-ssh-shell ~/.dsh/profiles/web/plugins/dsh-ssh-shell
+git clone https://github.com/framecy/dsh-ssh-shell.git
+ln -s "$PWD/dsh-ssh-shell" ~/.dsh/profiles/web/plugins/dsh-ssh-shell
 ```
 
-然后在 profile 的 `cordis.patch.yml` 里挂上插件行：
+**2. 在 profile 的 `cordis.patch.yml` 里挂上插件行**
+
+编辑 `~/.dsh/profiles/web/cordis.patch.yml`，加入：
 
 ```yaml
 - insert:
@@ -38,14 +39,18 @@ ln -s /path/to/dsh-ssh-shell ~/.dsh/profiles/web/plugins/dsh-ssh-shell
       name: './plugins/dsh-ssh-shell/lib/index.js'
 ```
 
-重启 DSH Web（插件在进程启动时加载）：
+**3. 重启 DSH**
+
+插件只在进程启动时加载，改完必须重启：
 
 ```bash
-kill <dsh-web-pid>
-cd ~/.dsh/profiles && node node_modules/@deepseek-ai/dsh/lib/bin.js web --port 3080 --host 127.0.0.1
+# 停掉当前的 dsh 进程（Ctrl+C，或 kill 掉对应 pid），然后重新启动
+dsh web
 ```
 
-浏览器刷新页面（前端 `client.js` 是页面加载时取的）。
+重启后浏览器刷新页面（前端 `client.js` 是页面加载时取的）。
+
+> 装好后，右侧边缘会出现「终端」竖条，会话头部会出现 SSH 终端按钮。
 
 ## 前置依赖
 
@@ -101,6 +106,7 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 ## 测试
 
 ```bash
+npm install       # 首次：装测试用的三个依赖
 npm test          # 等价于 node tests/run_all.mjs
 ```
 
@@ -116,10 +122,13 @@ npm test          # 等价于 node tests/run_all.mjs
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
+> 运行时不需要 `npm install`：`@deepseek-ai/dsh-tools`、`ws`、`node-pty` 都由 DSH 安装自带，
+> 插件由 DSH 加载器解析这些依赖。`devDependencies` 只是为了让 `npm test` 能独立跑起来。
+
 ## 版本
 
 见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.4.1`。
 
 ## License
 
-私有仓库，未开源（`UNLICENSED`）。未经授权不得使用、复制或分发。
+[Apache-2.0](./LICENSE) © 2026 framecy
