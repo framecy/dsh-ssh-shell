@@ -24,7 +24,21 @@ DSH 插件：用密码直连远程主机的 SSH 终端。一个自然语言工�
 ~/.dsh/profiles/web/plugins/dsh-ssh-shell/
 ```
 
-然后重启 DSH Web（插件在进程启动时加载）：
+目录本身可以是软链接（开发时推荐），DSH 会顺着链接加载：
+
+```bash
+ln -s /path/to/dsh-ssh-shell ~/.dsh/profiles/web/plugins/dsh-ssh-shell
+```
+
+然后在 profile 的 `cordis.patch.yml` 里挂上插件行：
+
+```yaml
+- insert:
+    - id: ssh-shell
+      name: './plugins/dsh-ssh-shell/lib/index.js'
+```
+
+重启 DSH Web（插件在进程启动时加载）：
 
 ```bash
 kill <dsh-web-pid>
@@ -49,7 +63,7 @@ cd ~/.dsh/profiles && node node_modules/@deepseek-ai/dsh/lib/bin.js web --port 3
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `controlDir` | `""` → `$TMPDIR` 下按 profile 分目录 | ControlMaster socket 存放位置 |
+| `controlDir` | `""` → `~/.dsh/ssh-shell` | ControlMaster socket 存放位置 |
 | `timeoutMs` | `30000` | 单条命令默认超时 |
 | `controlPersistSeconds` | `""` → `yes` | 留空 = master 常驻直到自己死；填秒数 = 闲置这么久后回收 |
 | `confirmByDefault` | `true` | 远程命令是否默认逐条确认 |
@@ -86,22 +100,26 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 
 ## 测试
 
-`/tmp/sshplug-test/` 下有三套自测，用假的 `ssh` / `sshpass` / `node-pty` + 真 WebSocket 跑完整协议（本机没有 sshd）：
+```bash
+npm test          # 等价于 node tests/run_all.mjs
+```
 
-| 脚本 | 覆盖 |
-|---|---|
-| `test.mjs` | 连接 / 输入回显 / pty 崩溃自愈 / 双客户端扇出 / master 死亡判定 / 救火上限 / 免密重连 / 不重复建 pty / 显式断开 / 工具层报错 |
-| `client_test.mjs` | 表单校验 / 连接帧 / 键盘快捷键 / Ctrl+L / 多行粘贴 / 退出自重连 / 断网退避 / 缺密码不重试风暴 / 手动断开 / 凭据回填 |
-| `keepalive_test.mjs` | 看门狗 t+75s 断死 socket、pty 存活、免密 re-attach、pty 不重复创建 |
+不需要真实 sshd、不需要网络。测试用假的 `ssh` / `sshpass` / `node-pty` 替换进程边界，
+让插件的真实逻辑（目标解析、脚本拼装、工作目录探测、pty 生命周期、WebSocket 扇出、
+几何钳位）照常运行。
+
+| 文件 | 覆盖 | 断言数 |
+|---|---|---|
+| `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束 | 47 |
+| `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离 | 19 |
+| `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、槽位注册、store 订阅契约、几何钳位与持久化 | 39 |
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-- `0.4.0` —— 浮动面板自由调节：标题栏拖动移动、四边四角拖动缩放（最小 340×240、钳位在可视区域内）、尺寸与位置按标签页持久化、缩放后同步 PTY 行列数
-- `0.3.0` —— pty 按 target 持久化、SSH 双保活、WS 看门狗、pty 原地重建、前端自动重连与凭据回填、修正 `connect()` 过期闭包与凭据 memo 失效
-- `0.2.0` —— 初版 WebSocket 终端面板
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.4.1`。
 
 ## License
 
-私有仓库，未附开源许可证。
+私有仓库，未开源（`UNLICENSED`）。未经授权不得使用、复制或分发。

@@ -1,7 +1,7 @@
 {
   "name": "dsh-ssh-shell",
   "description": "DSH plugin: password SSH into a remote host — a natural-language tool (connect/exec/close/status) over a persistent ControlMaster session, plus a browser terminal panel (right-side floating) with a real PTY over WebSocket.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -10,7 +10,30 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "license": "MIT",
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node tests/run_all.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/framecy/dsh-ssh-shell.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "ssh",
+    "terminal",
+    "controlmaster"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
