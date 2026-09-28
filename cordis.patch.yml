@@ -1,13 +1,20 @@
 # dsh-ssh-shell bundle patch: insert the plugin row.
 # Applied after the dsh-base/dsh-web-app layers; the profile's own
 # cordis.patch.yml can still override this row's config by id.
+#
+# `name` is the bare package name, not a path: the loader resolves a
+# non-relative specifier as a package, which is how `dsh plugin add` finds it
+# after installing the bundle. A './plugins/...' path would only work in a
+# checkout that happens to sit at that exact location.
 
 - insert:
     - id: ssh-shell
-      name: './plugins/dsh-ssh-shell/lib/index.js'
+      name: dsh-ssh-shell
       config:
-        # Where to keep ControlMaster sockets. Defaults to a per-profile dir
-        # under $TMPDIR so leftover sockets are reused within the OS session.
+        # Where to keep ControlMaster sockets. Empty = ~/.dsh/ssh-shell, which
+        # is used instead of $TMPDIR because the macOS temp path is long enough
+        # that the socket path would exceed the ~104-byte sun_path limit once
+        # ssh appends its own suffix.
         controlDir: ""
         # Default per-command timeout in ms (only when not given per-call).
         timeoutMs: 30000
@@ -16,9 +23,3 @@
         # the session and never asks for the password again. Set a number of
         # seconds to reap the master after that much inactivity.
         controlPersistSeconds: ""
-        # Confirm every remote command before sending it? The tool always
-        # confirms unless the caller passes requireConfirmation: false for a
-        # specific call. This flag sets the default for connect/exec.
-        confirmByDefault: true
-        # Refuse to run when sshpass is missing? true = hard error; false = warn.
-        requireSshpass: true

@@ -8,6 +8,7 @@ DSH 插件：用密码直连远程主机的 SSH 终端。一个自然语言工�
 
 - **SSH 工具**（对话里用）：`ssh_remote` 一次建立连接，之后每次远程命令都先向用户确认；`terminal_send` / `terminal_read` 直接操作面板里那个活的终端，不逐条确认。
 - **浏览器终端面板**：右侧浮动面板，真实 PTY —— 原始终端模式、方向键、全屏程序、Ctrl+C / Ctrl+D / Tab 补全都正常。
+- **一眼看出连接状态**：入口竖条自己的描边就是状态指示 —— 灰=未连接、琥珀（呼吸）=连接中/重连中、绿=已连接、红=连接断开，不用打开面板。
 - **断连自愈**：
   - `ControlMaster` + `ControlPersist=yes` —— master 常驻，不闲置回收；
   - SSH 双保活：`ServerAliveInterval=30` + `TCPKeepAlive=yes`，抗 NAT / 防火墙 / sshd 掐断静默连接；
@@ -20,18 +21,24 @@ DSH 插件：用密码直连远程主机的 SSH 终端。一个自然语言工�
 
 前置条件：已经装好 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness)，并且有一个能跑的 profile（下面以 `web` 为例）。
 
-**1. 把插件放进 profile 的 `plugins/` 目录**
+**方式一：从 GitHub 安装（推荐）**
 
-目录本身可以是软链接，DSH 会顺着链接加载（开发时推荐，改代码即生效）：
+```bash
+dsh plugin --profile web add github:framecy/dsh-ssh-shell
+```
+
+装完重启该 profile。仓库根目录的 `cordis.patch.yml` 会被自动应用，不需要手工编辑配置。
+
+**方式二：本地开发（软链接）**
+
+改代码即生效，适合调试：
 
 ```bash
 git clone https://github.com/framecy/dsh-ssh-shell.git
 ln -s "$PWD/dsh-ssh-shell" ~/.dsh/profiles/web/plugins/dsh-ssh-shell
 ```
 
-**2. 在 profile 的 `cordis.patch.yml` 里挂上插件行**
-
-编辑 `~/.dsh/profiles/web/cordis.patch.yml`，加入：
+然后在 profile 的 `cordis.patch.yml` 里手工挂上这一行。**这种本地路径方式必须写相对路径，不能写包名**（包名只在 `dsh plugin add` 装好之后才解析得到）：
 
 ```yaml
 - insert:
@@ -39,7 +46,7 @@ ln -s "$PWD/dsh-ssh-shell" ~/.dsh/profiles/web/plugins/dsh-ssh-shell
       name: './plugins/dsh-ssh-shell/lib/index.js'
 ```
 
-**3. 重启 DSH**
+**重启 DSH**
 
 插件只在进程启动时加载，改完必须重启：
 
@@ -50,17 +57,17 @@ dsh web
 
 重启后浏览器刷新页面（前端 `client.js` 是页面加载时取的）。
 
-> 装好后，右侧边缘会出现「终端」竖条，会话头部会出现 SSH 终端按钮。
+> 装好后，右侧边缘会出现「终端」竖条（这是唯一入口，不占会话头部空间）。
 
 ## 前置依赖
 
 | 依赖 | 说明 |
 |---|---|
-| `ssh` / `scp` | OpenSSH 客户端，提供 ControlMaster |
+| `ssh` | OpenSSH 客户端，提供 ControlMaster |
 | `sshpass` | 非交互密码认证。`brew install sshpass`（需要 keepalive tap）或 `brew install esolv/sshpass/sshpass` |
-| `node-pty` | 后端起 PTY 用，DSH 运行环境自带 |
+| `node-pty` | 后端起 PTY 用；作为本插件的依赖自动安装，无需手工处理 |
 
-缺 `sshpass` 会报硬错（可用 `requireSshpass: false` 降级为警告）。
+缺 `sshpass` 时连接会直接失败并给出明确报错。
 
 ## 配置
 
@@ -71,8 +78,8 @@ dsh web
 | `controlDir` | `""` → `~/.dsh/ssh-shell` | ControlMaster socket 存放位置 |
 | `timeoutMs` | `30000` | 单条命令默认超时 |
 | `controlPersistSeconds` | `""` → `yes` | 留空 = master 常驻直到自己死；填秒数 = 闲置这么久后回收 |
-| `confirmByDefault` | `true` | 远程命令是否默认逐条确认 |
-| `requireSshpass` | `true` | 缺 `sshpass` 是否直接报错 |
+
+远程命令**始终**逐条向用户确认（走 DSH 的 approval 通道），没有关闭它的开关——这是刻意的：确认是安全边界，不该被一个配置项悄悄关掉。
 
 ## 用法
 
@@ -84,13 +91,16 @@ dsh web
 
 **面板（GUI）**
 
-点右侧边缘的「终端」竖条，或会话头部的 SSH 终端按钮。填 `root@1.2.3.4 -p 22` + 密码，连接。
+点右侧边缘的「终端」竖条。填 `root@1.2.3.4 -p 22` + 密码，连接。
 
 - 面板是个浮动窗口：**拖标题栏移动位置**，**拖四条边或四个角调整大小**（最小 340×240，不会超出可视区域，也拖不到屏幕外）；
 - 尺寸和位置记在当前标签页，刷新后还在；窗口变小时面板会被拉回可视区域内；
 - 拖动结束即把新的行列数同步给远端 PTY，全屏程序（vim / top / htop）跟着变；
+- 竖条**自身的描边**就是连接状态指示（竖条贴着屏幕右缘，所以只有上/左/下三边有描边，右边留空）：
+  灰色 = 未连接，琥珀色（发光呼吸）= 连接中／重连中，绿色（淡淡发光）= 已连接，红色（淡淡发光）= 连接断开；
+  鼠标悬停在竖条上也能看到文字说明；
+- 断线会自动重连（1/2/4/8/16/30 秒退避），重连进度显示在面板标题栏；
 - 最小化面板**不会**断开 SSH；
-- 断线会自动重连，进度写在状态栏；
 - 只有「断开」按钮和 master 真的死了才会结束会话。
 
 **凭据只存在当前标签页**（`sessionStorage`），关掉标签页即清除，不会写到磁盘。
@@ -106,7 +116,7 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 ## 测试
 
 ```bash
-npm install       # 首次：装测试用的三个依赖
+npm install       # 首次：装测试所需的依赖
 npm test          # 等价于 node tests/run_all.mjs
 ```
 
@@ -118,16 +128,22 @@ npm test          # 等价于 node tests/run_all.mjs
 |---|---|---|
 | `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束 | 47 |
 | `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离 | 19 |
-| `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、槽位注册、store 订阅契约、几何钳位与持久化 | 39 |
+| `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、槽位注册、store 订阅契约、连接状态镜像与描边状态色、几何钳位与持久化 | 96 |
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
-> 运行时不需要 `npm install`：`@deepseek-ai/dsh-tools`、`ws`、`node-pty` 都由 DSH 安装自带，
-> 插件由 DSH 加载器解析这些依赖。`devDependencies` 只是为了让 `npm test` 能独立跑起来。
+### 依赖是怎么声明的
+
+| 包 | 声明位置 | 原因 |
+|---|---|---|
+| `node-pty`、`ws` | `dependencies` | 本插件自己要用的库，安装时随插件一起装 |
+| `@deepseek-ai/dsh-tools` | `peerDependencies` | 由 DSH 宿主提供，插件不重复打包一份 |
+
+装好插件后**运行时不需要手动 `npm install`**——依赖由安装器处理，`@deepseek-ai/dsh-tools` 则由 DSH 自己的安装树提供。`npm install` 只在你想**跑测试**时才需要。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.4.1`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.5.0`。
 
 ## License
 
