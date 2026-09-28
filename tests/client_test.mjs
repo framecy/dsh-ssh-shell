@@ -150,17 +150,18 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
 }
 
 // ---------------------------------------------------------------------------
-// 2. Slot registration: both slots the README promises must be registered,
-//    each with its component as the second argument to register().
+// 2. Slot registration: the overlay slot (the plugin's ONLY entry point — the
+//    header toggle was removed on purpose) must be registered, with its
+//    component as the second argument to register().
 // ---------------------------------------------------------------------------
 {
   const { slots: registered } = loadAndRender({})
   const byName = Object.fromEntries(registered.map((s) => [s.name, s]))
-  ok(byName["conversation.session.header.actions"], "registers the header-actions toggle slot")
   ok(byName["shell.overlay"], "registers the floating overlay slot")
-  eq(typeof byName["conversation.session.header.actions"].component, "function", "the header slot carries a component")
   eq(typeof byName["shell.overlay"].component, "function", "the overlay slot carries a component")
   eq(byName["shell.overlay"].id, "ssh-terminal-panel", "the overlay slot has a stable id")
+  eq(byName["conversation.session.header.actions"], undefined, "no header-actions toggle is registered (side entry only)")
+  eq(registered.length, 1, "exactly one slot is registered")
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +195,164 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
 }
 
 // ---------------------------------------------------------------------------
-// 2c. setGeometry clamps and persists; invalid input is ignored.
+// 2c. Connection status on the store: the panel body mirrors its React status
+//     into the store so the right-edge tab can render the dot. Status must be
+//     a primitive string (stable snapshot) and notify only on real changes.
+// ---------------------------------------------------------------------------
+{
+  const { store } = loadAndRender({})
+  eq(store.getStatus(), "idle", "status starts as idle")
+
+  const seen = []
+  const unsubscribe = store.subscribe(() => seen.push(store.getStatus()))
+
+  store.setStatus("connecting")
+  eq(store.getStatus(), "connecting", "setStatus updates the status")
+  eq(seen.length, 1, "status change notifies subscribers")
+
+  store.setStatus("connecting")
+  eq(seen.length, 1, "setting the same status does not re-notify")
+
+  store.setStatus("connected")
+  eq(store.getStatus(), "connected", "status transitions to connected")
+  eq(seen.length, 2, "second real change notifies again")
+
+  // Status is a string, so getSnapshot returns the same value between renders
+  // (no useSyncExternalStore loop).
+  eq(store.getStatus(), store.getStatus(), "getStatus is a stable primitive snapshot")
+
+  unsubscribe()
+  store.setStatus("idle")
+  eq(seen.length, 2, "unsubscribe stops status notifications")
+}
+
+// ---------------------------------------------------------------------------
+// 2c-2. The right-edge tab shows connection state through its OWN border and a
+//       soft glow — there is deliberately no separate status dot. Border color
+//       carries the state; connecting/reconnecting also breathe.
+//       The breathe keyframes animate box-shadow only, never the button's
+//       opacity: fading the whole button would dim the 终端 label with it.
+// ---------------------------------------------------------------------------
+{
+  const { slots: registered, store } = loadAndRender({})
+  const overlay = registered.find((s) => s.name === "shell.overlay").component
+
+  // Walk the rendered element tree for the tab button and any status dot.
+  const collect = (el, out) => {
+    if (!el || typeof el !== "object") return
+    for (const c of el.args || []) {
+      if (c && typeof c === "object" && c.args) {
+        const p = c.args[1]
+        if (p && p.style && typeof p.style.borderTop === "string" && p.style.position === "fixed") out.tab = p.style
+        if (p && p.style && p.style.borderRadius === "50%" && p.style.background) out.dot = p.style
+        if (p && typeof p.title === "string") out.title = p.title
+        if (typeof c.args[2] === "string" && c.args[2].includes("@keyframes")) out.css = (out.css || "") + c.args[2]
+      }
+      collect(c, out)
+    }
+  }
+
+  const EXPECTED = {
+    idle: "#8e8e93",
+    connecting: "#ffb340",
+    reconnecting: "#ffb340",
+    connected: "#30d158",
+    error: "#e5534b",
+  }
+  for (const [status, color] of Object.entries(EXPECTED)) {
+    store.setStatus(status)
+    const out = {}
+    collect(overlay(), out)
+    const want = "2px solid " + color
+    eq(out.tab.borderTop, want, `the tab's top border is ${color} when status is ${status}`)
+    eq(out.tab.borderLeft, want, `the tab's left border is ${color} when status is ${status}`)
+    eq(out.tab.borderBottom, want, `the tab's bottom border is ${color} when status is ${status}`)
+    // The tab is flush against the right viewport edge: no right border, so
+    // the state outline is open on that side instead of drawing a hard line
+    // against the screen edge.
+    eq(out.tab.borderRight, "none", `the tab has no right border when status is ${status}`)
+    // Guard against a `border` shorthand creeping back in: it would land after
+    // the longhands and silently restore the right edge.
+    eq(out.tab.border, undefined, `no border shorthand is used (it would override borderRight)`)
+  }
+
+  // No dot is drawn beside the label any more.
+  store.setStatus("connected")
+  const connectedOut = {}
+  collect(overlay(), connectedOut)
+  eq(connectedOut.dot, undefined, "no separate status dot is rendered (state lives on the border)")
+
+  // idle is gray with no glow at all.
+  store.setStatus("idle")
+  const idleOut = {}
+  collect(overlay(), idleOut)
+  eq(idleOut.tab.borderTop, "2px solid #8e8e93", "idle is gray")
+  ok(idleOut.tab.boxShadow.indexOf("rgba(48,209,88") === -1 && idleOut.tab.boxShadow.indexOf("rgba(255,179,64") === -1, "idle carries no colored glow")
+  eq(idleOut.tab.animation, "none", "idle does not animate")
+
+  // connected: green, soft glow, but steady (no breathing).
+  eq(connectedOut.tab.animation, "none", "a settled connected state does not animate")
+  ok(connectedOut.tab.boxShadow.indexOf("rgba(48,209,88,0.5)") !== -1, "connected carries a soft green glow")
+
+  // connecting/reconnecting breathe.
+  for (const s of ["connecting", "reconnecting"]) {
+    store.setStatus(s)
+    const out = {}
+    collect(overlay(), out)
+    eq(out.tab.animation, "dsh-ssh-breathe 1.4s ease-in-out infinite", `${s} breathes`)
+    ok(out.tab.animation.indexOf("spin") === -1, `${s} never uses the spin keyframes`)
+  }
+
+  // error: red, steady glow.
+  store.setStatus("error")
+  const errorOut = {}
+  collect(overlay(), errorOut)
+  eq(errorOut.tab.animation, "none", "error does not animate")
+  ok(errorOut.tab.boxShadow.indexOf("rgba(229,83,75,0.5)") !== -1, "error carries a soft red glow")
+
+  // The breathe keyframes must exist where the tab renders them, and must
+  // animate box-shadow rather than opacity (opacity would dim the label too).
+  ok(errorOut.css && errorOut.css.indexOf("@keyframes dsh-ssh-breathe") !== -1, "the breathe keyframes are defined where the tab renders them")
+  const breatheRule = errorOut.css.slice(errorOut.css.indexOf("@keyframes dsh-ssh-breathe"))
+  ok(breatheRule.indexOf("box-shadow") !== -1, "the breathe keyframes animate box-shadow")
+  ok(breatheRule.indexOf("opacity") === -1, "the breathe keyframes never animate opacity (would dim the 终端 label)")
+
+  // The tab's tooltip reflects the state (readable without opening the panel).
+  ok(connectedOut.title.indexOf("已连接") !== -1, "the tab tooltip says 已连接 when connected")
+  ok(errorOut.title.indexOf("连接断开") !== -1, "the tab tooltip says 连接断开 on error")
+  store.setStatus("idle")
+  const idleTitle = {}
+  collect(overlay(), idleTitle)
+  ok(idleTitle.title.indexOf("未连接") !== -1, "the tab tooltip says 未连接 when idle")
+}
+
+// ---------------------------------------------------------------------------
+// 2d. Mirroring contract: when the PANEL's own status changes (via its wrapped
+//     setter), the store must see it — that is what feeds the side tab's dot.
+//     The panel body component is rendered directly (the bundle exports it for
+//     exactly this purpose), so the wrapped setter runs for real.
+// ---------------------------------------------------------------------------
+{
+  const { store, exports: exportsObj } = loadAndRender({})
+  eq(store.getStatus(), "idle", "store status starts idle before any panel activity")
+  ok(typeof exportsObj.__terminalPanelBody === "function", "the bundle exports the panel body component for tests")
+
+  // Render the body once so its useState hooks (and the wrapped setter) run.
+  const body = exportsObj.__terminalPanelBody()
+  ok(body && body.__el, "rendering the panel body produces an element tree")
+
+  // Drive the real lifecycle through the WRAPPED setter (the same function the
+  // 13 call sites invoke) — it must both update React state and mirror to the
+  // store. The store is the side tab's read path.
+  ok(typeof exportsObj.__panelSetStatus === "function", "the wrapped status setter is exposed for tests")
+  exportsObj.__panelSetStatus("connecting")
+  eq(store.getStatus(), "connecting", "panel's setStatus('connecting') is mirrored into the store")
+  exportsObj.__panelSetStatus("connected")
+  eq(store.getStatus(), "connected", "panel's setStatus('connected') is mirrored into the store")
+}
+
+// ---------------------------------------------------------------------------
+// 2e. setGeometry clamps and persists; invalid input is ignored.
 // ---------------------------------------------------------------------------
 {
   const { store } = loadAndRender({})
