@@ -150,8 +150,9 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
 }
 
 // ---------------------------------------------------------------------------
-// 2. Slot registration: the overlay slot (the plugin's ONLY entry point — the
-//    header toggle was removed on purpose) must be registered, with its
+// 2. Slot registration: exactly one slot — the right-side floating overlay.
+//    The conversation-header "终端" button was removed as a duplicate entry,
+//    so the overlay tab is the plugin's ONLY entry point and must carry its
 //    component as the second argument to register().
 // ---------------------------------------------------------------------------
 {
@@ -160,8 +161,12 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
   ok(byName["shell.overlay"], "registers the floating overlay slot")
   eq(typeof byName["shell.overlay"].component, "function", "the overlay slot carries a component")
   eq(byName["shell.overlay"].id, "ssh-terminal-panel", "the overlay slot has a stable id")
-  eq(byName["conversation.session.header.actions"], undefined, "no header-actions toggle is registered (side entry only)")
-  eq(registered.length, 1, "exactly one slot is registered")
+  eq(
+    registered.filter((s) => s.name === "conversation.session.header.actions").length,
+    0,
+    "no header-actions toggle is registered (side tab is the only entry)",
+  )
+  eq(registered.length, 1, "registers exactly one slot")
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +427,96 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
   for (const [k, v] of Object.entries(geometry)) {
     eq(Number.isInteger(v), true, `geometry.${k} is an integer (drag does not accumulate fractions)`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// 6. WebSocket endpoint resolution.
+//
+// Desktop loads the application document from `dsh-app://app/`, where
+// location.host is the literal "app". The original `proto + location.host`
+// therefore produced `ws://app/ssh-terminal`, which cannot resolve — the panel
+// handshake failed instantly and it retried forever while the Host was healthy.
+// The endpoint must fall back to the loopback Host for any non-HTTP scheme.
+// ---------------------------------------------------------------------------
+{
+  ok(loadAndRender().exports.__wsUrl, "the bundle exposes __wsUrl for endpoint inspection")
+
+  /**
+   * The bundle closes over `location` when it evaluates, so each origin case
+   * needs a fresh evaluation against that origin.
+   */
+  function wsUrlFor(origin) {
+    globalThis.location = origin
+    return loadAndRender().exports.__wsUrl()
+  }
+
+  // web profile: the page is already served by the Host, so location.host wins.
+  eq(
+    wsUrlFor({ protocol: "http:", host: "127.0.0.1:3080" }),
+    "ws://127.0.0.1:3080/ssh-terminal",
+    "http origin uses location.host",
+  )
+
+  eq(
+    wsUrlFor({ protocol: "https:", host: "example.test" }),
+    "wss://example.test/ssh-terminal",
+    "https origin upgrades to wss",
+  )
+
+  // Desktop: the custom scheme must NOT leak the synthetic "app" hostname.
+  const desktopUrl = wsUrlFor({ protocol: "dsh-app:", host: "app" })
+  eq(desktopUrl, "ws://127.0.0.1:19387/ssh-terminal", "dsh-app origin falls back to the loopback Host port")
+  ok(!desktopUrl.includes("//app"), "the synthetic dsh-app hostname never reaches the WebSocket URL")
+
+  // A custom deployment can point the bundle at a different Host port.
+  globalThis.window.__DSH_SSH_SHELL_WS_HOST__ = "127.0.0.1:41000"
+  eq(
+    wsUrlFor({ protocol: "dsh-app:", host: "app" }),
+    "ws://127.0.0.1:41000/ssh-terminal",
+    "an explicit host override is honoured",
+  )
+  delete globalThis.window.__DSH_SSH_SHELL_WS_HOST__
+
+  globalThis.location = { protocol: "http:", host: "127.0.0.1:3080" }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Automatic-reconnect policy.
+//
+// The panel retries a bounded number of times at a fixed interval so a user
+// watching it sees predictable timing, and it must stop rather than loop
+// forever. The previous unbounded exponential ladder (1/2/4/8/16/30s) could
+// strand the panel in "reconnecting" indefinitely.
+// ---------------------------------------------------------------------------
+{
+  const policy = loadAndRender().exports.__retryPolicy
+  ok(policy, "the bundle exposes its retry policy for inspection")
+  eq(policy.maxAttempts, 3, "at most 3 automatic reconnect attempts")
+  eq(policy.delayMs, 10000, "one retry every 10 seconds")
+
+  // The copy the user actually reads must state the same numbers, so the
+  // policy cannot be changed without the panel text following.
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8")
+  ok(
+    source.includes('" / " + MAX_RECONNECT_ATTEMPTS + " 次'),
+    "the progress line shows the attempt against the cap",
+  )
+  ok(
+    source.includes("自动重连已达上限"),
+    "exhausting the budget stops retrying with an explanation",
+  )
+  ok(
+    source.includes("已停止自动重连"),
+    "a user-initiated stop is reported in the output",
+  )
+  ok(
+    source.includes('"停止重连"'),
+    "the panel offers a stop-reconnecting control",
+  )
+  ok(
+    !source.includes("RECONNECT_DELAYS"),
+    "the old unbounded exponential backoff ladder is gone",
+  )
 }
 
 process.exit(summary("client_test") ? 0 : 1)
