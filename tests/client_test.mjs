@@ -436,7 +436,11 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
 // location.host is the literal "app". The original `proto + location.host`
 // therefore produced `ws://app/ssh-terminal`, which cannot resolve — the panel
 // handshake failed instantly and it retried forever while the Host was healthy.
-// The endpoint must fall back to the loopback Host for any non-HTTP scheme.
+//
+// The Host port is not fixed either: Desktop builds launch it with `--port 0`,
+// so the port changes on every start. The endpoint must come from the origin
+// the shell publishes on `window.__DSH_TRANSPORT__.streamBaseUrl`; only when
+// that is absent may a non-HTTP origin fall back to the legacy fixed port.
 // ---------------------------------------------------------------------------
 {
   ok(loadAndRender().exports.__wsUrl, "the bundle exposes __wsUrl for endpoint inspection")
@@ -463,10 +467,37 @@ function loadAndRender({ innerWidth = 1440, innerHeight = 900, stored = null, ra
     "https origin upgrades to wss",
   )
 
-  // Desktop: the custom scheme must NOT leak the synthetic "app" hostname.
+  // Desktop: the custom scheme must NOT leak the synthetic "app" hostname, and
+  // the live Host port from the shell's transport beat must be used verbatim.
+  globalThis.window.__DSH_TRANSPORT__ = { ownsHost: true, streamBaseUrl: "http://127.0.0.1:52326" }
   const desktopUrl = wsUrlFor({ protocol: "dsh-app:", host: "app" })
-  eq(desktopUrl, "ws://127.0.0.1:19387/ssh-terminal", "dsh-app origin falls back to the loopback Host port")
+  eq(desktopUrl, "ws://127.0.0.1:52326/ssh-terminal", "dsh-app origin uses the live Host port from __DSH_TRANSPORT__")
   ok(!desktopUrl.includes("//app"), "the synthetic dsh-app hostname never reaches the WebSocket URL")
+  ok(!desktopUrl.includes("19387"), "the legacy fixed port is not used when the live origin is known")
+
+  // An https Host (custom deployment) must upgrade the socket to wss.
+  globalThis.window.__DSH_TRANSPORT__ = { ownsHost: true, streamBaseUrl: "https://host.example:8443" }
+  eq(
+    wsUrlFor({ protocol: "dsh-app:", host: "app" }),
+    "wss://host.example:8443/ssh-terminal",
+    "an https transport origin upgrades to wss",
+  )
+
+  // A malformed / non-HTTP transport value must be ignored, not trusted.
+  globalThis.window.__DSH_TRANSPORT__ = { streamBaseUrl: "dsh-app://app" }
+  eq(
+    wsUrlFor({ protocol: "dsh-app:", host: "app" }),
+    "ws://127.0.0.1:19387/ssh-terminal",
+    "a non-HTTP transport value falls back to the legacy loopback port",
+  )
+  delete globalThis.window.__DSH_TRANSPORT__
+
+  // Legacy Desktop build: no transport origin published, fixed port remains.
+  eq(
+    wsUrlFor({ protocol: "dsh-app:", host: "app" }),
+    "ws://127.0.0.1:19387/ssh-terminal",
+    "without a transport origin, dsh-app falls back to the legacy loopback port",
+  )
 
   // A custom deployment can point the bundle at a different Host port.
   globalThis.window.__DSH_SSH_SHELL_WS_HOST__ = "127.0.0.1:41000"

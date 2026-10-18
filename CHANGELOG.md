@@ -2,6 +2,23 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.1] — 2026-10-18
+
+修复桌面版面板「始终连接失败」——即使地址和密码都正确。
+
+- **根因**：桌面版把页面加载在 `dsh-app://app/` 下，`location.host` 是 `"app"`。
+  0.4.2 为此写死了回落端口 `127.0.0.1:19387`，但当前桌面版启动 Host 用的是
+  `--port 0`（每次启动换一个随机端口，本次是 52326）。写死的 19387 上没有服务，
+  WebSocket 瞬间被拒 → 面板报「连接失败」/重连耗尽，而 Host 和远端 SSH 本身都健康。
+- **修复**：改为读取桌面外壳发布的真实 Host origin
+  （`window.__DSH_TRANSPORT__.streamBaseUrl`，与外壳自己的流用同一个值），再拼
+  `/ssh-terminal`；http 升级为 ws、https 升级为 wss。取不到该 origin 时才回落到
+  旧的 19387，`window.__DSH_SSH_SHELL_WS_HOST__` 覆盖仍然有效。
+- WebSocket 出错时的提示补上**实际尝试的地址**，下次端口再变能一眼看出打到了哪。
+- 测试：客户端断言 110 → 114，新增「桌面用真实随机端口」「https → wss」
+  「非法 transport 值不采信」「无 transport 才回落 19387」四条。
+- 改完必须重启桌面 App（或重载窗口）才会加载新的前端 bundle。
+
 ## [0.6.0] — 2026-10-12
 
 合并两条并行开发线：竖条描边状态 + 依赖与安装声明修正。

@@ -82,9 +82,11 @@ dsh web
 远程命令**始终**逐条向用户确认（走 DSH 的 approval 通道），没有关闭它的开关——这是刻意的：确认是安全边界，不该被一个配置项悄悄关掉。
 
 > **桌面版（DeepSeek Harness.app）**：桌面版把页面加载在自有协议 `dsh-app://app/` 下，
-> 该 origin 下 `location.host` 是 `"app"`、无法用作 WebSocket 主机名。插件对此自动
-> 回落到本地 Host `127.0.0.1:19387`（桌面版固定端口）。若你的桌面版改了端口，
-> 在页面里设置 `window.__DSH_SSH_SHELL_WS_HOST__ = "127.0.0.1:<port>"` 即可覆盖。
+> 该 origin 下 `location.host` 是 `"app"`、无法用作 WebSocket 主机名。插件改为读取
+> 桌面外壳发布的真实 Host origin（`window.__DSH_TRANSPORT__.streamBaseUrl`）再拼
+> `/ssh-terminal`——桌面版每次启动用 `--port 0` 随机端口，写死端口会在下次启动就失效。
+> 只有当该 origin 取不到时才回落到旧的固定端口 `127.0.0.1:19387`；仍可用
+> `window.__DSH_SSH_SHELL_WS_HOST__ = "127.0.0.1:<port>"` 手工覆盖。
 
 ## 用法
 
