@@ -182,13 +182,13 @@ npm install       # 首次：装 ws / node-pty（npm 会因 peer 报 ERESOLVE，
 npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 ```
 
-> **插件不依赖 `@deepseek-ai/dsh-tools` 的运行时实现**。宿主这个包只导出
-> `defineTool = (definition) => definition` —— 一个纯恒等函数。`lib/index.js` 里保留了
-> 同名的本地副本，所以插件在只装了 `ws` + `node-pty` 的环境里就能加载。
-> 0.7.0 → 0.7.2 三版都因为 `import` 了这个包而在 ESM 链接阶段
-> `ERR_MODULE_NOT_FOUND`，`apply()` 从未执行；0.7.3 修掉了。
-> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图。
-> `scripts/link-host-deps.mjs` 与 `pretest` 是那段历史的遗留物，测试已不再需要它们。
+> **插件不依赖宿主注入才能加载**。`@deepseek-ai/dsh-tools` 只导出
+> `defineTool = (definition) => definition` —— 一个纯恒等函数。`lib/index.js` 自带同名实现，
+> 所以插件在只装了 `ws` + `node-pty` 的环境里也能 `import` 并 `apply()`，
+> 跑测试不需要宿主的模块拦截层在场。
+> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图
+> （宿主会读它并为同名裸模块建 interception 路由，但本插件已不再走这条路）。
+> `scripts/link-host-deps.mjs` 与 `pretest` 是早期遗留物，测试已不需要它们。
 
 不需要真实 sshd、不需要网络。测试用假的 `ssh` / `sshpass` / `node-pty` 替换进程边界，
 让插件的真实逻辑（目标解析、脚本拼装、工作目录探测、pty 生命周期、WebSocket 扇出、
