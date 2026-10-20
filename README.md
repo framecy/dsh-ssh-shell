@@ -179,16 +179,16 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 
 ```bash
 npm install       # 首次：装 ws / node-pty（npm 会因 peer 报 ERESOLVE，加 --legacy-peer-deps）
-npm test          # 自动链接宿主的 @deepseek-ai/dsh-tools 后跑三套测试
+npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 ```
 
-> **为什么 `@deepseek-ai/dsh-tools` 不进 `devDependencies`**：它是 DSH 宿主自带的内部包，
-> 只能由宿主提供，插件侧只声明 `peerDependencies`。0.7.0 把它写进了 `devDependencies`，
-> 导致插件在 ESM 链接阶段 `MODULE_NOT_FOUND`、`apply()` 根本没执行 —— 面板没路由、对话里没工具
-> （0.7.1 修的则是同一现象的另一条根因：工具重名让 `apply()` 中途抛错）。
-> 所以测试改为用 `scripts/link-host-deps.mjs` 从宿主软链一份，`npm test` 会自动调用它。
-> 这条软链只影响本地跑测试，与安装到 profile 里的运行时无关。
-> 宿主不在默认位置时：`npm run link-host-deps -- --host /path/to/dsh`。
+> **插件不依赖 `@deepseek-ai/dsh-tools` 的运行时实现**。宿主这个包只导出
+> `defineTool = (definition) => definition` —— 一个纯恒等函数。`lib/index.js` 里保留了
+> 同名的本地副本，所以插件在只装了 `ws` + `node-pty` 的环境里就能加载。
+> 0.7.0 → 0.7.2 三版都因为 `import` 了这个包而在 ESM 链接阶段
+> `ERR_MODULE_NOT_FOUND`，`apply()` 从未执行；0.7.3 修掉了。
+> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图。
+> `scripts/link-host-deps.mjs` 与 `pretest` 是那段历史的遗留物，测试已不再需要它们。
 
 不需要真实 sshd、不需要网络。测试用假的 `ssh` / `sshpass` / `node-pty` 替换进程边界，
 让插件的真实逻辑（目标解析、脚本拼装、工作目录探测、pty 生命周期、WebSocket 扇出、
@@ -213,7 +213,7 @@ SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.2`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.3`。
 
 ## License
 

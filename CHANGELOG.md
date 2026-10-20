@@ -2,6 +2,25 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.3] — 2026-10-20
+
+修掉 0.7.0 → 0.7.2 三版共同的真正根因：**插件在 ESM 链接阶段就崩，`apply()` 从未执行**。
+
+- **根因**：`lib/index.js` 里 `import { defineTool } from "@deepseek-ai/dsh-tools"`。
+  宿主的 `defineTool` 源码只有一行 —— `export const defineTool = (definition) => definition`，
+  是个纯恒等函数，没有任何运行时价值。但它是本插件对该包**唯一的**依赖，
+  而 DSH profile 用 pnpm 且 `autoInstallPeers: false`，这个包永远不在插件的解析路径上。
+  于是 `import` 在任何代码执行前就抛 `ERR_MODULE_NOT_FOUND`：
+  `ssh_remote` 工具不存在、`/ssh-terminal` 路由没注册、技能没写。
+- **修复**：删掉该 import，在文件内保留同名的本地恒等函数，三处调用点一字未改。
+  运行时行为完全等价。
+- **更正**：0.7.1 把根因归为「工具重名导致 `apply()` 中途抛错」、
+  0.7.2 归为「devDependencies 让 pnpm 解析进依赖树」—— 两者都只是症状层面的解释，
+  本次用宿主源码与实测坐实了上面的真实原因。
+- **验证**：在**故意让 `@deepseek-ai/dsh-tools` 不可解析**的前提下 `npm test` 三套全绿；
+  在只含 `ws` + `node-pty` 的干净目录里 `import` 插件成功
+  （`name=ssh-shell`、`inject` 三项齐全、`apply` 为函数）。
+
 ## [0.7.2] — 2026-10-20
 
 发版工程改动，不影响运行时行为。
