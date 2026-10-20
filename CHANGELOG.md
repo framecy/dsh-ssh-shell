@@ -2,6 +2,22 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.2] — 2026-10-20
+
+修复在桌面端「更新到 0.6.1 失败、并被自动回滚」的问题。
+
+- **根因**：`apply()` 每次都无条件 `ctx.webServer.registerUpgrade()` 注册
+  `/ssh-terminal`。该路由是进程级的，同一进程里第二次 `apply()`（宿主已加载本插件，
+  插件管理器又加载已安装副本做更新后的激活验证）会抛
+  `webserver: duplicate upgrade route`，宿主因此把该条目记为
+  「1 entry did not activate」，市场判定更新后的组合不可用并回滚。
+  pnpm 每一步其实都成功过——失败在加载验证，不在安装。
+- **修复**：注册失败且原因是「duplicate upgrade route」时降级为一条 warn 日志并复用
+  已注册的那条路由（每条连接本就自带 `WebSocketServer`，pty 注册表是模块级的，
+  第二条路由只是同一批会话的第二个入口）。其他原因仍然照常抛出，不吞错。
+- 测试：terminal 断言 19 → 23，新增「重复路由不使 apply() 失败」「重复路由只记一次
+  warn」「其他 registerUpgrade 错误仍然冒出」。
+
 ## [0.6.1] — 2026-10-18
 
 修复桌面版面板「始终连接失败」——即使地址和密码都正确。

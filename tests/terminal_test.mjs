@@ -130,6 +130,54 @@ plugin.apply(
 eq(registered.length, 1, "apply registers exactly one WebSocket upgrade route")
 eq(registered[0].path, "/ssh-terminal", "upgrade route is /ssh-terminal")
 
+// A second apply() in the same process hits the host's duplicate-route refusal.
+// That must degrade to a warning, not fail the entry (which the host reports as
+// "did not activate" and the plugin manager reads as a broken update).
+const warnings = []
+let secondApplyThrew = null
+try {
+  plugin.apply(
+    {
+      webServer: {
+        registerUpgrade: () => {
+          throw new Error('webserver: duplicate upgrade route "/ssh-terminal"')
+        },
+      },
+      systemPrompt: { section: () => {} },
+      tools: { register: () => {} },
+      logger: (level) => (message) => warnings.push([level, message]),
+      get: () => undefined,
+    },
+    {},
+  )
+} catch (error) {
+  secondApplyThrew = error
+}
+eq(secondApplyThrew, null, "a duplicate upgrade route does not fail apply()")
+eq(warnings.length, 1, "the duplicate route is reported once as a warning")
+eq(warnings[0]?.[0], "warn", "the duplicate route warning uses the warn level")
+
+// Anything else from registerUpgrade still surfaces: the guard is narrow.
+let otherThrew = null
+try {
+  plugin.apply(
+    {
+      webServer: {
+        registerUpgrade: () => {
+          throw new Error("webserver: something else broke")
+        },
+      },
+      systemPrompt: { section: () => {} },
+      tools: { register: () => {} },
+      get: () => undefined,
+    },
+    {},
+  )
+} catch (error) {
+  otherThrew = error
+}
+eq(otherThrew?.message, "webserver: something else broke", "unrelated registerUpgrade errors still propagate")
+
 const { WebSocketServer } = await import("ws")
 const realHandleUpgrade = WebSocketServer.prototype.handleUpgrade
 
