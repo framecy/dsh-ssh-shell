@@ -26,9 +26,6 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.3.0"
   },
-  "devDependencies": {
-    "@deepseek-ai/dsh-tools": "0.1.7-rc.2"
-  },
   "dependencies": {
     "node-pty": "^1.2.0-beta.15",
     "ws": "^8.0.0"
