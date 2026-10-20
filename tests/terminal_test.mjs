@@ -309,12 +309,12 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
   eq(second.__test__.sessions, sessions, "a second module instance shares one session map")
 
   // terminal_read / terminal_send resolve it without an explicit target.
-  const read = await tools.terminal_read.execute({}, {})
-  eq(read.ok, true, "terminal_read finds the panel terminal without a target")
+  const read = await tools.ssh_terminal_read.execute({}, {})
+  eq(read.ok, true, "ssh_terminal_read finds the panel terminal without a target")
   eq(read.length, 0, "an empty buffer reads back as an empty string, not an error")
 
-  const sent = await tools.terminal_send.execute({ data: "uptime\r" }, {})
-  eq(sent.ok, true, "terminal_send types into the panel terminal without a target")
+  const sent = await tools.ssh_terminal_send.execute({ data: "uptime\r" }, {})
+  eq(sent.ok, true, "ssh_terminal_send types into the panel terminal without a target")
 
   terminalRegistry.delete(key)
 }
@@ -330,6 +330,81 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
   eq(status.sessions.length, 0, "status returns an empty list when nothing is connected")
   ok(/no active ssh session/i.test(status.message), "status explains there is no session instead of a bare count")
   ok(/GUI terminal panel/.test(status.message), "status tells the user the panel is an option")
+}
+
+// ---------------------------------------------------------------------------
+// 8. Tool-name collisions must NOT take the whole plugin down.
+//
+//    DSH ships @deepseek-ai/dsh-tool-terminal, which already owns
+//    terminal_open / terminal_send / terminal_read / terminal_signal /
+//    terminal_close / terminal_list. `ctx.tools.register()` throws on a
+//    duplicate name, and a throw inside apply() makes the host report the whole
+//    entry as "did not activate" — the user then sees no ssh_remote tool at all
+//    even though the WebSocket backend is perfectly healthy.
+//
+//    Two things are pinned here: our tools are named so they cannot collide,
+//    and even if the host does report a duplicate, only that one tool is
+//    skipped (with a warning) instead of aborting the rest of the plugin.
+// ---------------------------------------------------------------------------
+{
+  const ourNames = Object.keys(tools)
+  ok(ourNames.includes("ssh_remote"), "registers ssh_remote")
+  ok(ourNames.includes("ssh_terminal_send"), "registers ssh_terminal_send")
+  ok(ourNames.includes("ssh_terminal_read"), "registers ssh_terminal_read")
+
+  // The names DSH's own terminal bundle reserves.
+  const builtin = ["terminal_open", "terminal_send", "terminal_read", "terminal_signal", "terminal_close", "terminal_list"]
+  for (const name of builtin) {
+    ok(!ourNames.includes(name), `does not shadow the built-in tool "${name}"`)
+  }
+
+  // Simulate a host that already owns every name this plugin registers: apply()
+  // must survive and still register what it can, warning instead of throwing.
+  const collisions = new Set(["ssh_remote", "ssh_terminal_send", "ssh_terminal_read"])
+  const warnings = []
+  const captured = []
+  let threw = null
+  try {
+    plugin.apply(
+      {
+        webServer: { registerUpgrade: () => {} },
+        systemPrompt: { section: () => {} },
+        tools: {
+          register: (t) => {
+            if (collisions.has(t.name)) throw new Error(`tool "${t.name}" is already registered`)
+            captured.push(t.name)
+          },
+        },
+        logger: (level) => (message) => warnings.push([level, message]),
+        get: () => undefined,
+      },
+      { installSkill: false },
+    )
+  } catch (error) {
+    threw = error
+  }
+  eq(threw, null, "a duplicate tool name does not fail apply()")
+  eq(warnings.length, 3, "each skipped tool is reported once")
+  eq(warnings[0]?.[0], "warn", "skipped tools are reported at warn level")
+  ok(/already registered/.test(warnings[0]?.[1] || ""), "the warning names the duplicate reason")
+  eq(captured.length, 0, "nothing was registered when every name collided")
+
+  // An unrelated register() failure is still a real error: the guard is narrow.
+  let otherThrew = null
+  try {
+    plugin.apply(
+      {
+        webServer: { registerUpgrade: () => {} },
+        systemPrompt: { section: () => {} },
+        tools: { register: () => { throw new Error("tool registry exploded") } },
+        get: () => undefined,
+      },
+      { installSkill: false },
+    )
+  } catch (error) {
+    otherThrew = error
+  }
+  eq(otherThrew?.message, "tool registry exploded", "unrelated registration errors still propagate")
 }
 
 process.exit(summary("terminal_test") ? 0 : 1)

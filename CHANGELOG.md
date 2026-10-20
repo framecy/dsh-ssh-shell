@@ -2,6 +2,29 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.1] — 2026-10-20
+
+修掉 0.7.0 在桌面版上**整个插件装不上**的问题：面板能连、后端正常，但对话里没有 `ssh_remote` 工具。
+
+- **根因**：本插件注册了 `terminal_send` / `terminal_read`，而 DSH 自带的
+  `@deepseek-ai/dsh-tool-terminal` 已经占用了这两个名字（它还占 `terminal_open` /
+  `terminal_signal` / `terminal_close` / `terminal_list`）。`ctx.tools.register()`
+  遇到重名会直接抛错（`tool "terminal_send" is already registered`），
+  而这次抛错发生在 `apply()` 中间——`ssh_remote` 已经注册成功，
+  但 `apply()` 中断后宿主把**整个插件条目**判为「did not activate」，
+  于是三个工具一个都不出现在对话里。
+  桌面版崩溃日志里的 `dsh-ssh-shell: import failed` 就是这条。
+  已用模拟宿主复现：内置工具存在时 `apply()` 抛错，成功注册的只剩 `ssh_remote`。
+- **修复**：两个面板工具改名为 `ssh_terminal_send` / `ssh_terminal_read`，
+  与本插件的 `ssh_remote` 一起构成无冲突的 `ssh_` 前缀族。
+- **加固**：新增 `registerToolSafely()`，把每个 `ctx.tools.register()` 包起来。
+  遇到 `already registered` 只记一条 warn 并跳过**那一个**工具，其余照常加载；
+  其他错误仍然照常抛出，不吞错。今后任何一处重名都不会再拖垮整个插件。
+- 技能 `SKILL.md`、README、工具描述里的名字同步更新，并写明「内置 terminal_* 操作的是
+  DSH 自己的终端，不是本插件的 SSH PTY」，避免模型调错工具。
+- 测试：terminal 38 → 53，新增「三个工具名都不与内置族冲突」
+  「全部重名时 apply() 不抛错、逐个 warn、其余仍加载」「无关注册错误仍然抛出」等断言。
+
 ## [0.7.0] — 2026-10-20
 
 修掉用户反馈最痛的那个问题：**面板里连上了远端服务器，对话里却识别不到这个会话**。
