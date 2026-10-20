@@ -139,6 +139,30 @@ agent 却回「没有会话」。现在两者**共用同一份进程级会话表
 agent 在说「没有会话」之前必须先查 `status`——这条约定写在插件自带的
 `skills/ssh-shell/SKILL.md` 里，装插件时自动生效。
 
+## 工具速查
+
+三个工具，别和内置的 `terminal_*` 混用（那套操作 DSH 自己的终端）：
+
+| 工具 | 干什么 | 要确认吗 |
+|---|---|---|
+| `ssh_remote` | `connect` / `exec` / `close` / `status`。自己连会话、跑一次性命令 | `exec` 每条都确认 |
+| `ssh_terminal_send` | 往**面板里那个活终端**敲键盘（`data: "ls\r"`） | 不确认 |
+| `ssh_terminal_read` | 读那个终端最近的输出（可 `clear: true` 读增量） | 不确认 |
+
+常用写法：
+
+```
+ssh_remote          { action: "status" }                          # 先看有什么会话
+ssh_remote          { action: "connect", target: "root@1.2.3.4 -p 22", password: "..." }
+ssh_remote          { action: "exec", target: "root@1.2.3.4", command: "df -h" }
+ssh_remote          { action: "exec", command: "tail -f /var/log/nginx/error.log", run_in_background: true }
+ssh_terminal_read   {}                                            # 面板终端当前停在哪
+ssh_terminal_send   { data: "systemctl status nginx\r" }          # 回车 = \r
+ssh_terminal_read   { clear: true }                               # 读增量
+```
+
+转义：`\r` 回车、`\x03` Ctrl+C、`\x1b[A` 上箭头、`\t` Tab 补全。
+
 ## 设计取舍
 
 pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket。理由：
