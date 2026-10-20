@@ -23,3 +23,8 @@
         # the session and never asks for the password again. Set a number of
         # seconds to reap the master after that much inactivity.
         controlPersistSeconds: ""
+        # Install the bundled skill (skills/ssh-shell/SKILL.md) into
+        # $DSH_HOME/skills on startup, so installing the plugin also teaches the
+        # agent that a GUI-panel session exists. Set false to manage skills
+        # yourself.
+        installSkill: true

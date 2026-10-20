@@ -59,6 +59,10 @@ dsh web
 
 > 装好后，右侧边缘会出现「终端」竖条（**唯一入口**，点它即可打开面板，不占会话头部空间）。
 
+插件启动时还会把自带的技能装到 `$DSH_HOME/skills/ssh-shell/SKILL.md`（默认 `~/.dsh/skills/`）。
+**装插件就自动带上技能，不需要手工复制**。技能告诉 agent：面板连上的会话和它自己连的会话是同一批，
+先查 `ssh_remote action=status` 再说话。不想让它管技能就在配置里设 `installSkill: false`。
+
 ## 前置依赖
 
 | 依赖 | 说明 |
@@ -78,6 +82,7 @@ dsh web
 | `controlDir` | `""` → `~/.dsh/ssh-shell` | ControlMaster socket 存放位置 |
 | `timeoutMs` | `30000` | 单条命令默认超时 |
 | `controlPersistSeconds` | `""` → `yes` | 留空 = master 常驻直到自己死；填秒数 = 闲置这么久后回收 |
+| `installSkill` | `true` | 启动时把自带技能装到 `$DSH_HOME/skills/ssh-shell/` |
 
 远程命令**始终**逐条向用户确认（走 DSH 的 approval 通道），没有关闭它的开关——这是刻意的：确认是安全边界，不该被一个配置项悄悄关掉。
 
@@ -114,6 +119,18 @@ dsh web
 
 **凭据只存在当前标签页**（`sessionStorage`），关掉标签页即清除，不会写到磁盘。
 
+**面板连上的会话，对话里也看得见**
+
+这是本插件最容易踩的坑：面板和对话工具过去可能各自持有一份会话表，于是面板里明明连着、
+agent 却回「没有会话」。现在两者**共用同一份进程级会话表**，并且：
+
+- `ssh_remote action=status` 会同时列出面板连上的会话，标 `source: "gui-panel"`；
+- 面板会话已经认证过，**不会再问密码**，直接 `terminal_send` / `terminal_read` 操作；
+- 对面板会话跑 `ssh_remote exec` 会直接接管那条会话，不需要重新 connect。
+
+agent 在说「没有会话」之前必须先查 `status`——这条约定写在插件自带的
+`skills/ssh-shell/SKILL.md` 里，装插件时自动生效。
+
 ## 设计取舍
 
 pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket。理由：
@@ -121,6 +138,10 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 - 面板折叠、页面刷新、切 tab、网络抖动都不该杀掉远端 shell；
 - 只有显式 `type:"close"` 或 master 死亡才真正结束；
 - master 活着时浏览器**永远不需要重新输密码**。
+
+会话表挂在 `globalThis`（`Symbol.for("dsh-ssh-shell.shared")`）上，而不是模块常量。
+因为 DSH 可能在同一进程里加载本插件两次（宿主自己一份 + 插件管理器为验证更新加载已安装副本），
+模块常量会让两份各自持有一个空 Map——这正是「面板连上了但会话无法识别」的根因。
 
 ## 测试
 
@@ -135,9 +156,9 @@ npm test          # 等价于 node tests/run_all.mjs
 
 | 文件 | 覆盖 | 断言数 |
 |---|---|---|
-| `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束 | 47 |
-| `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离 | 19 |
-| `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、单槽位注册、store 订阅契约、连接状态镜像与描边状态色、WebSocket 地址解析、有界重连策略、几何钳位与持久化 | 110 |
+| `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束、跨实例共享状态、技能安装 | 68 |
+| `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离、面板会话对 `status` / `terminal_read` / `terminal_send` 可见 | 38 |
+| `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、单槽位注册、store 订阅契约、连接状态镜像与描边状态色、WebSocket 地址解析、有界重连策略、几何钳位与持久化 | 114 |
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
@@ -152,7 +173,7 @@ SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.6.0`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.0`。
 
 ## License
 

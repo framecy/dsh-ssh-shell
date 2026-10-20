@@ -2,6 +2,40 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] — 2026-10-20
+
+修掉用户反馈最痛的那个问题：**面板里连上了远端服务器，对话里却识别不到这个会话**。
+
+- **根因**：会话表是模块级常量（`const sessions = new Map()` /
+  `const terminalRegistry = new Map()`）。DSH 会在同一个进程里加载本插件两次——
+  宿主自己一份，插件管理器为验证更新再加载已安装副本——两个模块实例各有自己的模块作用域，
+  于是各自持有一份**互不相通的空 Map**。浏览器面板把 pty 写进赢了 `/ssh-terminal` 路由的那一份，
+  而模型用的工具读的是另一份：`ssh_remote action=status` 报 0 条，
+  `terminal_read` 报 `no active terminal`，用户却正对着一个活着的终端。
+  这不是"面板没连上"，是两边根本不是同一张表。
+- **修复**：会话表改挂在 `globalThis[Symbol.for("dsh-ssh-shell.shared")]`。
+  `Symbol.for` 是跨 realm 注册表，同一进程里任意份数的模块实例（含热重载）都落到同一个对象上。
+  `lastTerminalKey` 一并移入共享对象。
+- **`status` 现在能看见面板会话**：除模型自己 `connect` 的之外，还列出面板连上的，
+  标 `source: "gui-panel"`，并带上 `cwd` / `alive` / `hasTerminal`。
+  零会话时不再只回一个 `0 active ssh session(s)`，而是明说「没有会话，
+  可以去面板连，或调用 action=connect」。
+- **`exec` / `close` 接受面板会话**：目标有面板 pty 但 `sessions` 里没有时，
+  直接接管那条已认证的会话（不再要求重新输密码），而不是回 `call action=connect first`。
+- **新增自带技能 `skills/ssh-shell/SKILL.md`**：启动时自动装到
+  `$DSH_HOME/skills/ssh-shell/SKILL.md`，装插件即带技能，不用手工复制。
+  技能写明铁律——**说"没有会话"之前先查 `ssh_remote action=status`**，
+  并区分面板会话（`terminal_send` / `terminal_read`，不逐条确认）与自连会话（`exec`，逐条确认）。
+  内容相同的副本不会重写，避免每次启动都惊动 skills 的文件监听。
+  新增配置 `installSkill`（默认 `true`），设 `false` 可自行管理技能。
+- **`package.json`**：`files` 补上 `skills`，否则发到 npm / 从 GitHub 安装时技能文件不随包走。
+- 修正 `lib/index.js` 顶部注释里那句「paired with a companion SKILL.md」——
+  以前只是句承诺，仓库里根本没有那个文件，现在是真的有了。
+- 测试：core 47 → 68，terminal 19 → 38（三套合计 176 → 220），新增
+  「跨模块实例共享同一张会话表」「status 列出 gui-panel 会话」「terminal_read/send 无 target 也能命中面板终端」
+  「零会话时给出可操作的说明」「技能路径/内容/幂等安装/安装失败只告警」等断言。
+  测试调 `apply()` 一律传 `installSkill: false`，不写开发机真实的 `~/.dsh/skills`。
+
 ## [0.6.2] — 2026-10-20
 
 修复在桌面端「更新到 0.6.1 失败、并被自动回滚」的问题。

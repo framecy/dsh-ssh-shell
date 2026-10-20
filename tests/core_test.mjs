@@ -8,6 +8,9 @@
 //
 //   node tests/core_test.mjs
 
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { __test__ } from "../lib/index.js"
 import { eq, ok, throws, summary } from "./helpers.mjs"
 
@@ -21,6 +24,10 @@ const {
   shq,
   CWD_BEGIN,
   CWD_END,
+  sharedState,
+  bundledSkillPath,
+  dshSkillsDir,
+  installSkill,
 } = __test__
 
 console.log("core_test: pure logic\n")
@@ -112,6 +119,87 @@ eq(controlPersistValue({ controlPersistSeconds: "yes" }), "yes", "literal 'yes' 
   const custom = controlPathFor(parseTarget("root@1.2.3.4"), { controlDir: "/tmp/dsh-test-ctl" })
   ok(custom.startsWith("/tmp/dsh-test-ctl/"), "configured controlDir is honoured")
   ok(custom.endsWith(".sock"), "socket file uses the .sock suffix")
+}
+
+// ---- shared state: the host can load this plugin TWICE in one process (its
+//      own copy + the plugin manager's installed copy used to verify an
+//      update). Each module instance has its own module scope, so plain module
+//      constants would give each copy a SEPARATE session map — the browser
+//      panel writes its pty into one, the model's tools read the other, and the
+//      agent answers "no active terminal" while the user stares at a live
+//      terminal. Anchoring on globalThis via Symbol.for fixes that; these
+//      assertions pin the fix. ----
+{
+  const { sessions, terminalRegistry } = __test__
+  eq(terminalRegistry, sharedState.terminalRegistry, "terminalRegistry is the process-wide shared map")
+  eq(sessions, sharedState.sessions, "sessions is the process-wide shared map")
+  eq(typeof sharedState.lastTerminalKey, "object", "lastTerminalKey lives on the shared object (null until a connect)")
+
+  // Symbol.for is the cross-realm registry, so a second module instance — even
+  // one loaded from a different URL — resolves the SAME symbol.
+  eq(Symbol.for("dsh-ssh-shell.shared"), Symbol.for("dsh-ssh-shell.shared"), "the shared key is a global symbol")
+  ok(globalThis[Symbol.for("dsh-ssh-shell.shared")] === sharedState, "the shared state is anchored on globalThis")
+}
+
+// ---- bundled skill: installing the plugin must also ship the SKILL.md, or the
+//      agent never learns that a panel session exists ----
+{
+  const p = bundledSkillPath()
+  ok(p.endsWith("/skills/ssh-shell/SKILL.md"), `bundled skill path points at skills/ssh-shell/SKILL.md (${p})`)
+  ok(existsSync(p), "the bundled SKILL.md exists in this package")
+  const body = readFileSync(p, "utf8")
+  ok(/^---\n/.test(body), "the bundled SKILL.md starts with YAML frontmatter")
+  ok(/\nname:\s*ssh-shell\b/.test(body), "its frontmatter name is ssh-shell")
+  ok(/\nwhenToUse:/.test(body), "its frontmatter declares whenToUse")
+  ok(body.includes("action=status"), "the skill tells the agent to check status before claiming there is no session")
+  ok(body.includes("gui-panel"), "the skill explains the gui-panel source in status output")
+
+  const dir = dshSkillsDir()
+  ok(dir.endsWith("/skills/ssh-shell"), `install target is $DSH_HOME/skills/ssh-shell (${dir})`)
+}
+
+// ---- installSkill: copies the bundled skill into a DSH_HOME, idempotently, and
+//      never throws when the destination is unwritable ----
+{
+  const tmpHome = mkdtempSync(join(tmpdir(), "dsh-ssh-shell-home-"))
+  const prevHome = process.env.DSH_HOME
+  process.env.DSH_HOME = tmpHome
+  const logs = []
+  const fakeCtx = { logger: (level) => (message) => logs.push([level, message]) }
+
+  try {
+    eq(dshSkillsDir(), join(tmpHome, "skills", "ssh-shell"), "DSH_HOME overrides the install root")
+
+    installSkill(fakeCtx, {})
+    const dest = join(tmpHome, "skills", "ssh-shell", "SKILL.md")
+    ok(existsSync(dest), "installSkill writes SKILL.md under $DSH_HOME/skills/ssh-shell")
+    eq(readFileSync(dest, "utf8"), readFileSync(bundledSkillPath(), "utf8"), "the installed copy matches the bundled one")
+    ok(logs.some(([lvl]) => lvl === "info"), "a successful install is logged at info level")
+
+    // Idempotent: an identical copy is left alone (no log, no rewrite).
+    const before = logs.length
+    installSkill(fakeCtx, {})
+    eq(logs.length, before, "a second install with identical content does nothing")
+
+    // The opt-out the test suite itself relies on.
+    const other = mkdtempSync(join(tmpdir(), "dsh-ssh-shell-home-"))
+    process.env.DSH_HOME = other
+    installSkill(fakeCtx, { installSkill: false })
+    ok(!existsSync(join(other, "skills", "ssh-shell", "SKILL.md")), "installSkill: false skips the install entirely")
+    rmSync(other, { recursive: true, force: true })
+
+    // A failed install is reported, never thrown: the SSH tools must still load.
+    process.env.DSH_HOME = join(tmpHome, "a-file-not-a-dir")
+    writeFileSync(join(tmpHome, "a-file-not-a-dir"), "x", "utf8")
+    let threw = null
+    try { installSkill(fakeCtx, {}) } catch (error) { threw = error }
+    eq(threw, null, "an unwritable install root does not throw")
+    ok(logs.some(([lvl]) => lvl === "warn"), "the failed install is reported as a warning")
+  } finally {
+    if (prevHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevHome
+    rmSync(tmpHome, { recursive: true, force: true })
+  }
 }
 
 process.exit(summary("core_test") ? 0 : 1)

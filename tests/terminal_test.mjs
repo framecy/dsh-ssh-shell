@@ -117,14 +117,15 @@ const { terminalRegistry, sessions } = plugin.__test__
 // Wire up: capture the plugin's upgrade handler, then feed it a fake socket.
 // ---------------------------------------------------------------------------
 const registered = []
+const tools = {}
 plugin.apply(
   {
     webServer: { registerUpgrade: (o) => registered.push(o) },
     systemPrompt: { section: () => {} },
-    tools: { register: () => {} },
+    tools: { register: (t) => { tools[t.name] = t } },
     get: () => undefined,
   },
-  {},
+  { installSkill: false },
 )
 
 eq(registered.length, 1, "apply registers exactly one WebSocket upgrade route")
@@ -148,7 +149,7 @@ try {
       logger: (level) => (message) => warnings.push([level, message]),
       get: () => undefined,
     },
-    {},
+    { installSkill: false },
   )
 } catch (error) {
   secondApplyThrew = error
@@ -171,7 +172,7 @@ try {
       tools: { register: () => {} },
       get: () => undefined,
     },
-    {},
+    { installSkill: false },
   )
 } catch (error) {
   otherThrew = error
@@ -268,6 +269,67 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
   eq(plugin.__test__.attachPtyToWebSocket(c3, "nobody@nowhere:22", sendTo(c3)), false, "attaching to an unknown target returns false")
 
   terminalRegistry.delete(key)
+}
+
+// ---------------------------------------------------------------------------
+// 6. "面板连上了，但会话无法识别" — the bug this section pins.
+//
+//    A pty the user opened in the GUI panel must be visible to the model-facing
+//    tools. Previously the panel and the tools could end up on two different
+//    module instances with two different maps, so `ssh_remote action=status`
+//    reported 0 sessions and exec answered "call action=connect first" while the
+//    user was staring at a live terminal.
+// ---------------------------------------------------------------------------
+{
+  const key = "panel@example.com:22"
+  const fakeSession = {
+    target: { user: "panel", host: "example.com", port: 22, key },
+    controlPath: "/tmp/does-not-exist-panel.sock",
+    cwd: "/srv/app",
+  }
+  terminalRegistry.set(key, {
+    pty: { write() {}, kill() {}, resize() {} },
+    buffer: "",
+    subscribers: new Set(),
+    target: fakeSession.target,
+    session: fakeSession,
+  })
+
+  // status must list it, tagged as coming from the GUI panel.
+  const status = await tools.ssh_remote.execute({ action: "status" }, {})
+  eq(status.sessions.length, 1, "status lists the GUI-panel session")
+  eq(status.sessions[0].key, key, "the listed key is the panel's target")
+  eq(status.sessions[0].source, "gui-panel", "it is tagged source=gui-panel so the model knows where it came from")
+  eq(status.sessions[0].cwd, "/srv/app", "its remote cwd is reported")
+  ok(!/^no active ssh session/.test(status.message), "status does not claim there is no session")
+
+  // A second copy of this module (the plugin-manager instance) sees the SAME map.
+  const second = await import("../lib/index.js?instance=2")
+  eq(second.__test__.terminalRegistry, terminalRegistry, "a second module instance shares one terminal registry")
+  eq(second.__test__.sessions, sessions, "a second module instance shares one session map")
+
+  // terminal_read / terminal_send resolve it without an explicit target.
+  const read = await tools.terminal_read.execute({}, {})
+  eq(read.ok, true, "terminal_read finds the panel terminal without a target")
+  eq(read.length, 0, "an empty buffer reads back as an empty string, not an error")
+
+  const sent = await tools.terminal_send.execute({ data: "uptime\r" }, {})
+  eq(sent.ok, true, "terminal_send types into the panel terminal without a target")
+
+  terminalRegistry.delete(key)
+}
+
+// ---------------------------------------------------------------------------
+// 7. With nothing connected, status says so explicitly — the model must not be
+//    left guessing whether "0 sessions" means empty or broken.
+// ---------------------------------------------------------------------------
+{
+  eq(sessions.size, 0, "no model-connected sessions remain")
+  eq(terminalRegistry.size, 0, "no panel terminals remain")
+  const status = await tools.ssh_remote.execute({ action: "status" }, {})
+  eq(status.sessions.length, 0, "status returns an empty list when nothing is connected")
+  ok(/no active ssh session/i.test(status.message), "status explains there is no session instead of a bare count")
+  ok(/GUI terminal panel/.test(status.message), "status tells the user the panel is an option")
 }
 
 process.exit(summary("terminal_test") ? 0 : 1)

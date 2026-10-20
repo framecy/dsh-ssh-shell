@@ -1,7 +1,7 @@
 {
   "name": "dsh-ssh-shell",
   "description": "DSH plugin: password SSH into a remote host — a natural-language tool (connect/exec/close/status) over a persistent ControlMaster session, plus a browser terminal panel (right-side floating) with a real PTY over WebSocket.",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -11,6 +11,7 @@
   },
   "files": [
     "lib",
+    "skills",
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
@@ -24,6 +25,9 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.2"
   },
   "dependencies": {
     "node-pty": "^1.2.0-beta.15",
