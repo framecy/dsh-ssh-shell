@@ -165,7 +165,17 @@ eq(controlPersistValue({ controlPersistSeconds: "yes" }), "yes", "literal 'yes' 
   const prevHome = process.env.DSH_HOME
   process.env.DSH_HOME = tmpHome
   const logs = []
-  const fakeCtx = { logger: (level) => (message) => logs.push([level, message]) }
+  // Mirror the host's REAL logger shape: ctx.logger(name) returns a named logger
+  // object with .warn/.info/.error methods. The previous fake was
+  // `(level) => (message) => ...`, which encoded a contract the host never had —
+  // so the plugin shipped a logger call that threw inside apply() and the host
+  // rejected the whole entry ("did not activate").
+  const namedLogger = {
+    warn: (message) => logs.push(["warn", message]),
+    info: (message) => logs.push(["info", message]),
+    error: (message) => logs.push(["error", message]),
+  }
+  const fakeCtx = { logger: () => namedLogger }
 
   try {
     eq(dshSkillsDir(), join(tmpHome, "skills", "ssh-shell"), "DSH_HOME overrides the install root")

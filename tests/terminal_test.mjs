@@ -146,7 +146,12 @@ try {
       },
       systemPrompt: { section: () => {} },
       tools: { register: () => {} },
-      logger: (level) => (message) => warnings.push([level, message]),
+      // Host's real shape: ctx.logger(name) -> { warn, info, error }.
+      logger: () => ({
+        warn: (message) => warnings.push(["warn", message]),
+        info: (message) => warnings.push(["info", message]),
+        error: (message) => warnings.push(["error", message]),
+      }),
       get: () => undefined,
     },
     { installSkill: false },
@@ -375,7 +380,12 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
             captured.push(t.name)
           },
         },
-        logger: (level) => (message) => warnings.push([level, message]),
+        // Host's real shape: ctx.logger(name) -> { warn, info, error }.
+      logger: () => ({
+        warn: (message) => warnings.push(["warn", message]),
+        info: (message) => warnings.push(["info", message]),
+        error: (message) => warnings.push(["error", message]),
+      }),
         get: () => undefined,
       },
       { installSkill: false },
