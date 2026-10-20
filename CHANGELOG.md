@@ -2,6 +2,16 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.2] — 2026-10-20
+
+发版工程改动，不影响运行时行为。
+
+- `@deepseek-ai/dsh-tools` 不再写进 `devDependencies`，只保留 `peerDependencies`。
+- 新增 `scripts/link-host-deps.mjs`：从 DSH 宿主软链一份 `dsh-tools` 供测试使用，
+  `npm test` 自动调用（`pretest`），并可 `--host` 指定宿主目录。
+  这条软链只作用于本地测试，不进 profile 的依赖树。
+- README 补充测试说明与上述约束。
+
 ## [0.7.1] — 2026-10-20
 
 修掉 0.7.0 在桌面版上**整个插件装不上**的问题：面板能连、后端正常，但对话里没有 `ssh_remote` 工具。
