@@ -1,7 +1,7 @@
 {
   "name": "dsh-ssh-shell",
   "description": "DSH plugin: password SSH into a remote host — a natural-language tool (connect/exec/close/status) over a persistent ControlMaster session, plus a browser terminal panel (right-side floating) with a real PTY over WebSocket.",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -18,7 +18,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node tests/run_all.mjs"
+    "test": "node tests/run_all.mjs",
+    "pretest": "node scripts/link-host-deps.mjs || node -e \"console.error('\\n缺少宿主的 @deepseek-ai/dsh-tools。\\n请先运行: node scripts/link-host-deps.mjs --host <DSH安装目录>\\n'); process.exit(1)\"",
+    "link-host-deps": "node scripts/link-host-deps.mjs"
   },
   "engines": {
     "node": ">=20"
