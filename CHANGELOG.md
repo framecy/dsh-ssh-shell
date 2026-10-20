@@ -2,6 +2,27 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.4] — 2026-10-20
+
+修掉真正的运行时崩溃：**`TypeError: ctx.logger(...) is not a function`，
+它让宿主把整个插件条目判为 "did not activate"**（面板没路由、对话里没工具、技能不写）。
+
+- **根因**：插件把宿主的日志服务当成了 `ctx.logger(level)(message)` 用。
+  宿主（cordis `LoggerService`）的真实形状是 **`ctx.logger(name)` 返回一个具名 logger 对象**，
+  方法在对象上：`.warn()/.info()/.error()/.debug()/.verbose()`。
+  于是 `ctx.logger("warn")(...)` 变成「拿 Logger 对象当函数调」，直接抛 TypeError。
+- **为什么整条插件挂掉**：这个抛错发生在 `apply()` 内部的 `installSkill()` 里。
+  它先被 `installSkill` 自己的 `catch` 捕获，可 catch 里又用同样的坏形状记日志，
+  于是第二次抛出、逃出 `apply()`，宿主按「条目未激活」处理，后面注册工具与路由全部不执行。
+- **修复**：新增 `log(ctx, level, message)`，优先走真实形状
+  （`ctx.logger(name)[level](msg)`），兼容旧的 `ctx.logger(level)(msg)`，
+  整段 `try/catch` 兜底 —— **日志出错绝不允许拖垮插件**。五处调用点全部改用它。
+- **测试为什么没拦住**：三处测试假件把 logger 写成了 `(level) => (message) => …`，
+  等于把错误契约固化进了测试。现已改为宿主真实形状 `(name) => ({ warn, info, error })`。
+  复现与验证：用真实形状的假 ctx 跑 `apply()`，0.7.3 报出与宿主完全一致的那条 TypeError；
+  0.7.4 正常返回 `["ssh_remote","ssh_terminal_send","ssh_terminal_read"]` 与 `/ssh-terminal` 路由，
+  并记录一条 info 日志。
+
 ## [0.7.3] — 2026-10-20
 
 让插件不再依赖宿主注入才能加载：去掉对 `@deepseek-ai/dsh-tools` 的裸导入，

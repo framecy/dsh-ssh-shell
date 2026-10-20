@@ -213,7 +213,7 @@ SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.3`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.4`。
 
 ## License
 
