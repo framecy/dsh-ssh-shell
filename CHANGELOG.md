@@ -44,7 +44,32 @@
   否则英文会话里这个 skill 不会被选中。
 - **README**：新增「Agent 使用说明」一节，说明这份说明的两处落点（system prompt 段 / skill）
   以及为什么细节放 skill、只把硬约束放 prompt。
-- **面板文案**：首次连接且没给密码时，原来报「SSH 会话已过期，需要重新输入密码」——
+### 装不上 / 更新不生效
+
+- **根因一：pnpm 拦原生构建**。`node-pty` 是原生模块，pnpm 10+ 默认拦截依赖的安装脚本，
+  `dsh plugin add` 直接以 `ERR_PNPM_IGNORED_BUILDS: node-pty` 失败。新建的 profile 都没有
+  `allowBuilds`（桌面版 profile 里早就有，所以只在"新装"时炸）。已在 README 的安装节前置说明，
+  并给出确切的 `pnpm-workspace.yaml` 片段。
+- **根因二：裸包名 404**。`dsh plugin add dsh-ssh-shell` 会去 npm registry 找，本包没发布到 npm。
+  必须写 `github:framecy/dsh-ssh-shell`。README 里加了一行警告。
+- **加固：node-pty 改为可选加载**。原来是顶层静态 import——原生模块编译失败时整条插件
+  连模块都加载不了，宿主判"未激活"，**三个 ssh_* 工具跟着一起消失**（工具根本不需要 PTY）。
+  现在用 `await import()` + `requirePty()` 兜底：面板报明确原因，工具侧照常工作。
+
+### 让模型不用猜有没有会话
+
+- 新增**每轮动态上下文** `ssh-shell:sessions`（`systemPrompt.context`）。原来只有 prompt 段
+  叫模型「先调 status」，但模型得先想起来去查——用户那句「已经连上了，你为什么查不到」
+  就是这么来的。现在每个请求都会把当前活着的会话直接写进上下文：
+
+  ```
+  ## SSH sessions (dsh-ssh-shell)
+  - root@example.com:22222 — panel (source: "gui-panel"), cwd=/root
+  ```
+
+  没有会话时渲染为空串，空闲状态零 token 开销。判活只看 ControlMaster socket 是否还在
+  （每次请求都跑，不能 spawn `ssh -O check`）；权威判断仍归 `ssh_remote action=status`。
+- 面板文案：首次连接且没给密码时，原来报「SSH 会话已过期，需要重新输入密码」——
   从来没连过的人看到「已过期」只会觉得面板坏了。现在区分
   「还没有连接 user@host，请输入密码」与真正的「已过期」。
 

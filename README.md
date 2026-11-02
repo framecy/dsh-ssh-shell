@@ -21,11 +21,25 @@ DSH 插件：用密码直连远程主机的 SSH 终端。一个自然语言工�
 
 前置条件：已经装好 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness)，并且有一个能跑的 profile（下面以 `web` 为例）。
 
+> **装之前先做一件事**：本插件依赖 `node-pty`（原生模块）。pnpm 10+ 默认**拦截**依赖的
+> 安装脚本，于是 `dsh plugin add` 会以 `ERR_PNPM_IGNORED_BUILDS: node-pty` 失败，
+> 或者装上了但面板打不开。在目标 profile 的 `pnpm-workspace.yaml` 里加：
+>
+> ```yaml
+> allowBuilds:
+>   node-pty: true
+> ```
+>
+> 已经装过的 profile（比如桌面版）通常已经有这一行，新建的 profile 没有。
+
 **方式一：从 GitHub 安装（推荐）**
 
 ```bash
 dsh plugin --profile web add github:framecy/dsh-ssh-shell
 ```
+
+> 必须写 `github:framecy/dsh-ssh-shell`。只写 `dsh-ssh-shell` 会去 npm registry 找，
+> 本包没发布到 npm，报 `ERR_PNPM_FETCH_404`。
 
 装完重启该 profile。仓库根目录的 `cordis.patch.yml` 会被自动应用，不需要手工编辑配置。
 
@@ -72,6 +86,17 @@ dsh web
 先查 `ssh_remote action=status` 再说话。不想让它管技能就在配置里设 `installSkill: false`。
 
 ## 前置依赖
+
+| 依赖 | 缺了会怎样 |
+|---|---|
+| `sshpass` | `ssh_remote connect`（密码登录）不可用；面板也一样。`brew install sshpass` |
+| `node-pty`（原生，随插件装） | **只有面板**不可用；三个 ssh_* 工具照常工作。装不上见上面 `allowBuilds` |
+| `ws` | 面板不可用（纯 JS，正常装不会缺） |
+
+`node-pty` 是**可选加载**的：它编译失败时插件不会整体挂掉，面板会报
+「node-pty 不可用…在 pnpm-workspace.yaml 里加 allowBuilds」，而模型侧的
+`ssh_remote` / `ssh_terminal_send` / `ssh_terminal_read` 仍然可用。
+（0.7.4 之前它是顶层静态 import——原生模块一坏，整条插件连带工具全部消失。）
 
 | 依赖 | 说明 |
 |---|---|
@@ -227,9 +252,10 @@ npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 | 文件 | 覆盖 | 断言数 |
 |---|---|---|
 | `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束、跨实例共享状态、技能安装 | 68 |
-| `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离、面板会话对 `status` / `ssh_terminal_read` / `ssh_terminal_send` 可见、工具重名不拖垮插件 | 53 |
+| `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离、面板会话对 `status` / `ssh_terminal_read` / `ssh_terminal_send` 可见、工具重名不拖垮插件 | 56 |
 | `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、单槽位注册、store 订阅契约、连接状态镜像与描边状态色、WebSocket 地址解析、有界重连策略、几何钳位与持久化 | 114 |
-| `tests/schema_test.mjs` | 作者态 schema DSL 编译（属性级 `required` → 对象级 `required` 数组）、三个真实工具定义的 schema 全部落在宿主接受的子集内、单个工具被宿主拒绝不拖垮插件 | 25 |
+| `tests/schema_test.mjs` | 作者态 schema DSL 编译（属性级 `required` → 对象级 `required` 数组）、三个真实工具定义的 schema 全部落在宿主接受的子集内、单个工具被宿主拒绝不拖垮插件、agent 说明段的内容 | 33 |
+| `tests/context_test.mjs` | 每轮会话快照：面板会话带 `gui-panel` 标记与 cwd、master 已死的会话不上报、同 target 去重、空闲时渲染为空、老宿主没有 `systemPrompt.context` 也能加载 | 21 |
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
