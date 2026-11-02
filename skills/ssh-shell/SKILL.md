@@ -22,6 +22,10 @@ whenToUse: Use whenever the user is talking about a remote server they connected
 用户说「连不上 / 看不到 / 会话无法识别」时，**第一件事是 `ssh_remote action=status`**，
 不要凭上下文猜，也不要说"你需要先连接"。
 
+> 从 0.7.5 起，system prompt 里每轮都会带一段 `## SSH sessions (dsh-ssh-shell)`，
+> 直接列出当前活着的会话。看到它就说明会话在——**不要因为没调过工具就说没有会话**。
+> 需要更精确的状态（cwd 变了、怀疑已过期）时再 `status`。
+
 `status` 同时列出两类会话：
 
 - 你自己 `connect` 的（无 `source` 字段）

@@ -2,6 +2,36 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.6] — 2026-11-02
+
+文档与安全审计的修复。
+
+### 安全
+
+- **密码不再出现在进程表里**。0.7.5 之前 `sshpass -p <password> ssh ...` 把密码作为
+  **命令行参数**传进去，同机任何用户在这条命令存活期间都能用 `ps aux` 读到它——
+  这与「密码一次性、不落盘」的承诺不符。改用 `sshpass -e`，密码从子进程环境变量
+  `SSHPASS` 读入，随进程退出消失。
+  `tests/core_test.mjs` 增加三条源码级断言钉住这个回归（行为测试看不出来，只有安全审计能发现）。
+- **CHANGELOG 里泄露过真实主机地址**：0.7.5 的示例用了某台真实服务器的
+  `root@example.com:22222`，已改为 `root@example.com:22222`。
+
+### 文档
+
+- 新增四节：**安全与隐私**（数据流向表 + 边界说明）、**平台支持**、**已知限制**、**卸载**。
+- 修正三处过时表述：
+  - 「跑三套测试」→ 五套；
+  - 「之后每条远程命令都会让你确认」→ 只有 `ssh_remote exec` 确认，
+    `ssh_terminal_send` 不确认（这是刻意的，也意味着模型能直接在你已登录的会话里敲命令）；
+  - 「约定写在 SKILL.md 里」→ 现在是 system prompt 段 + 每轮会话快照，SKILL.md 只是细节。
+- 明确 `peerDependencies` 的用途：插件管理器据此判断兼容性，范围必须覆盖宿主版本。
+
+### 清理
+
+- 删掉 `scripts/link-host-deps.mjs` 与 `pretest`。宿主把 `@deepseek-ai/*` 打进了
+  `app.asar`，脚本的候选路径全部失效，于是 `npm test` 会在 `pretest` 阶段直接失败——
+  而插件早已不 import 宿主，这一步纯属遗留。
+
 ## [0.7.5] — 2026-11-02
 
 修掉「面板能用、工具调不出来」：**`ctx.tools.register()` 被宿主的

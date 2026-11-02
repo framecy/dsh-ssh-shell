@@ -10,7 +10,8 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { __test__ } from "../lib/index.js"
 import { eq, ok, throws, summary } from "./helpers.mjs"
 
@@ -210,6 +211,19 @@ eq(controlPersistValue({ controlPersistSeconds: "yes" }), "yes", "literal 'yes' 
     else process.env.DSH_HOME = prevHome
     rmSync(tmpHome, { recursive: true, force: true })
   }
+}
+
+// ---- the password must never reach the process table ----
+//
+// sshpass accepts the secret two ways: `-p <password>` (visible in `ps aux`
+// to every local user for the lifetime of the connect) and `-e` (read from
+// $SSHPASS). 0.7.5 moved to -e; this pins it, because the regression is
+// invisible in every behavioural test and only shows up in a security review.
+{
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "index.js"), "utf8")
+  ok(!/"-p",\s*password/.test(source), "the password is not passed as an sshpass command-line argument")
+  ok(/"-e",\s*\n\s*"ssh"/.test(source), "sshpass reads the password from the environment (-e)")
+  ok(/SSHPASS:\s*password/.test(source), "the password is handed over in the SSHPASS environment variable")
 }
 
 process.exit(summary("core_test") ? 0 : 1)

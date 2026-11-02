@@ -132,7 +132,12 @@ dsh web
 
 > `ssh root@1.2.3.4 -p 22`，密码 `xxx`，连上后看一下 `/var/log` 里最近的报错
 
-第一次连接不确认；之后每条远程命令都会把确切命令写出来让你确认。长时间任务传 `run_in_background: true`，用 `job_output` 增量读。
+第一次连接不确认；之后每条 `ssh_remote action=exec` 都会把确切命令写出来让你确认。
+长时间任务传 `run_in_background: true`，用 `job_output` 增量读。
+
+> 确认边界要分清：**`exec` 逐条确认**，但面板会话用的 `ssh_terminal_send` **不确认**
+> ——你在面板里看着同一个 PTY，模型敲的每个字符你都看得见。这也是为什么
+> `exec` 被审批拒绝时应该改用 `ssh_terminal_send`，而不是反复重试。
 
 **面板（GUI）**
 
@@ -161,8 +166,10 @@ agent 却回「没有会话」。现在两者**共用同一份进程级会话表
 - 面板会话已经认证过，**不会再问密码**，直接 `ssh_terminal_send` / `ssh_terminal_read` 操作；
 - 对面板会话跑 `ssh_remote exec` 会直接接管那条会话，不需要重新 connect。
 
-agent 在说「没有会话」之前必须先查 `status`——这条约定写在插件自带的
-`skills/ssh-shell/SKILL.md` 里，装插件时自动生效。
+agent 在说「没有会话」之前必须先查 `status`——这条约定写在插件的 system prompt 段里
+（每个会话都在），细节在 `skills/ssh-shell/SKILL.md`（模型按需加载）。
+从 0.7.5 起还有一层保险：**每轮请求都会把当前活着的会话直接写进上下文**，
+模型不用先想起来去查。
 
 ## 工具速查
 
@@ -223,18 +230,77 @@ pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket
 因为 DSH 可能在同一进程里加载本插件两次（宿主自己一份 + 插件管理器为验证更新加载已安装副本），
 模块常量会让两份各自持有一个空 Map——这正是「面板连上了但会话无法识别」的根因。
 
+## 安全与隐私
+
+| 数据 | 流向 | 生命周期 |
+|---|---|---|
+| 面板密码 | 浏览器 `sessionStorage` → 本机 WebSocket → `sshpass` 的**环境变量**（`-e`） | 关标签页即清；不进磁盘、不进日志、不进 argv |
+| 对话里的密码 | `ssh_remote action=connect` 的参数 → 同上 | 一次连接用完即弃，插件不保存 |
+| 认证后的凭据 | OpenSSH ControlMaster，socket 在 `~/.dsh/ssh-shell/*.sock`（目录 0700） | 直到 master 退出或 `close` |
+| 远程命令与输出 | 直接回给模型；不写插件日志 | 随会话内存 |
+| 会话快照 | 每轮 system prompt 上下文 | 只在本进程内存 |
+
+边界要说清楚：
+
+- 密码走**本机回环** `ws://127.0.0.1`，不经过网络——但插件不做 TLS，若你把 DSH 的
+  `webServer` 改成对外监听，这条就不再成立。
+- `sshpass` 用 `-e` 从环境变量读密码，所以**不会出现在 `ps` 里**（0.7.4 之前用的是
+  `-p <password>`，同机任何用户 `ps aux` 都能看到）。同用户的其他进程理论上仍可读
+  `/proc/<pid>/environ`（macOS 上需要 root）。
+- **面板会话的 `ssh_terminal_send` 不经过审批**——这是刻意的（用户正看着同一个 PTY），
+  也意味着模型可以直接在你已登录的会话里敲命令。不接受这一点就不要用面板，改用
+  `ssh_remote exec`（逐条确认）。
+- 插件不读、不写 `~/.ssh/config` 与私钥；认证完全交给 OpenSSH 自己。
+
+## 平台支持
+
+| 平台 | 状态 |
+|---|---|
+| macOS | 主要目标，全功能 |
+| Linux | 可用；`sshpass` 需自行安装 |
+| Windows | **不支持**：依赖 `sshpass` 与 Unix domain socket 形式的 ControlPath |
+
+运行时需要两样东西：`sshpass`（密码登录）与 `node-pty` 的原生构建（面板）。
+缺 `node-pty` 时工具照常工作，只有面板不可用——见「前置依赖」。
+
+## 已知限制
+
+- 面板缓冲区只保留最近 **300 KB**；超出后 `ssh_terminal_read` 读到的是尾部。
+- 全屏交互程序（vim / top / htop）不适合用 `ssh_terminal_send` 驱动，读回来是刷屏文本；
+  让用户在面板里自己操作，或改用 `exec` 跑一次性命令。
+- 会话表是**进程级**的：DSH 重启后全部丢失，需要重新连接。
+- `exec` 的超时是**软超时**：到点 `SIGKILL` 掉本地 ssh 客户端并返回已捕获的输出
+  （`timedOut: true`），**远端进程未必随之退出**。要确保终止，请在远端自己用
+  `timeout` / `systemd-run` 之类的手段。
+- 桌面版每次启动随机端口；写死端口的旧配置会失效（见「配置」一节的回落规则）。
+- 同一 target 只有一个 pty：两个标签页连同一个 `user@host:port` 会共享同一个终端。
+
+## 卸载
+
+```bash
+dsh plugin --profile <profile> remove dsh-ssh-shell   # 1. 卸插件
+rm -rf ~/.dsh/skills/ssh-shell                        # 2. 删技能
+rm -rf ~/.dsh/ssh-shell                               # 3. 删残留 socket
+```
+
+然后重启该 profile。ControlMaster 进程随 DSH 退出而结束；万一残留：
+
+```bash
+pkill -f 'ControlPath=.*\.dsh/ssh-shell'
+```
+
 ## 测试
 
 ```bash
 npm install       # 首次：装 ws / node-pty（npm 会因 peer 报 ERESOLVE，加 --legacy-peer-deps）
-npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
+npm test          # 跑五套测试，不需要 @deepseek-ai/dsh-tools
 ```
 
 > **插件不依赖宿主注入才能加载**。`lib/index.js` 自带 schema 编译器，
 > 所以插件在只装了 `ws` + `node-pty` 的环境里也能 `import` 并 `apply()`，
 > 跑测试不需要宿主的模块拦截层在场。
-> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图。
-> `scripts/link-host-deps.mjs` 与 `pretest` 是早期遗留物，测试已不需要它们。
+> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图
+> （插件管理器据此判断兼容性，范围要覆盖宿主版本）。
 >
 > 注意：**自带实现不能是恒等函数**。宿主的 `defineTool` 会把作者态 schema DSL
 > （requiredness 写成每个属性上的 `required: true`）**编译**成宿主校验器接受的
@@ -251,7 +317,7 @@ npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 
 | 文件 | 覆盖 | 断言数 |
 |---|---|---|
-| `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束、跨实例共享状态、技能安装 | 68 |
+| `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束、跨实例共享状态、技能安装、**密码不进 argv** | 71 |
 | `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离、面板会话对 `status` / `ssh_terminal_read` / `ssh_terminal_send` 可见、工具重名不拖垮插件 | 56 |
 | `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、单槽位注册、store 订阅契约、连接状态镜像与描边状态色、WebSocket 地址解析、有界重连策略、几何钳位与持久化 | 114 |
 | `tests/schema_test.mjs` | 作者态 schema DSL 编译（属性级 `required` → 对象级 `required` 数组）、三个真实工具定义的 schema 全部落在宿主接受的子集内、单个工具被宿主拒绝不拖垮插件、agent 说明段的内容 | 33 |
@@ -270,7 +336,7 @@ SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.5`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.6`。
 
 ## License
 
