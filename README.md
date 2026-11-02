@@ -182,13 +182,20 @@ npm install       # 首次：装 ws / node-pty（npm 会因 peer 报 ERESOLVE，
 npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 ```
 
-> **插件不依赖宿主注入才能加载**。`@deepseek-ai/dsh-tools` 只导出
-> `defineTool = (definition) => definition` —— 一个纯恒等函数。`lib/index.js` 自带同名实现，
+> **插件不依赖宿主注入才能加载**。`lib/index.js` 自带 schema 编译器，
 > 所以插件在只装了 `ws` + `node-pty` 的环境里也能 `import` 并 `apply()`，
 > 跑测试不需要宿主的模块拦截层在场。
-> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图
-> （宿主会读它并为同名裸模块建 interception 路由，但本插件已不再走这条路）。
+> `package.json` 里仍保留 `peerDependencies` 声明，仅用于表达版本兼容意图。
 > `scripts/link-host-deps.mjs` 与 `pretest` 是早期遗留物，测试已不需要它们。
+>
+> 注意：**自带实现不能是恒等函数**。宿主的 `defineTool` 会把作者态 schema DSL
+> （requiredness 写成每个属性上的 `required: true`）**编译**成宿主校验器接受的
+> 原生 JSON Schema（对象级 `required: ["a","b"]`）。0.7.4 把它当纯糖内联成
+> `(d) => d`，于是 `output.schema` 带着布尔 `required` 进了
+> `ctx.tools.register()`，被宿主以 `JsonSchemaError` 拒绝——抛错发生在
+> `apply()` 里，宿主判定整条插件「未激活」，面板能用、工具全无。
+> 0.7.5 起 `lib/index.js` 里有一份等价的本地编译器（`compilePropertyMap` /
+> `compileValueSchema`），`tests/schema_test.mjs` 用宿主那套子集规则反向校验。
 
 不需要真实 sshd、不需要网络。测试用假的 `ssh` / `sshpass` / `node-pty` 替换进程边界，
 让插件的真实逻辑（目标解析、脚本拼装、工作目录探测、pty 生命周期、WebSocket 扇出、
@@ -199,6 +206,7 @@ npm test          # 跑三套测试，不需要 @deepseek-ai/dsh-tools
 | `tests/core_test.mjs` | target 解析、shell 引号转义、cwd 探针封帧与提取、ANSI 清洗、ControlPersist 取值、socket 路径长度约束、跨实例共享状态、技能安装 | 68 |
 | `tests/terminal_test.mjs` | 路由注册、未连接时的输入容错、连接失败回报、pty 扇出与重挂载、订阅者隔离、面板会话对 `status` / `ssh_terminal_read` / `ssh_terminal_send` 可见、工具重名不拖垮插件 | 53 |
 | `tests/client_test.mjs` | 前端可加载性（CJS shim 回归）、单槽位注册、store 订阅契约、连接状态镜像与描边状态色、WebSocket 地址解析、有界重连策略、几何钳位与持久化 | 114 |
+| `tests/schema_test.mjs` | 作者态 schema DSL 编译（属性级 `required` → 对象级 `required` 数组）、三个真实工具定义的 schema 全部落在宿主接受的子集内、单个工具被宿主拒绝不拖垮插件 | 25 |
 
 SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
@@ -213,7 +221,7 @@ SSH 保活选项已用 `ssh -G` 验证被 OpenSSH 接受。
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.4`。
+见 [CHANGELOG.md](./CHANGELOG.md)。当前 `0.7.5`。
 
 ## License
 

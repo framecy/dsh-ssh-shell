@@ -2,6 +2,34 @@
 
 本插件遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.5] — 2026-11-02
+
+修掉「面板能用、工具调不出来」：**`ctx.tools.register()` 被宿主的
+`JsonSchemaError` 拒绝，抛错落在 `apply()` 里，宿主判定整条插件 "did not activate"**。
+
+- **根因**：0.7.3 把宿主的 `defineTool` 当成纯恒等函数内联了。它不是——
+  宿主的 `defineTool` 会把**作者态 schema DSL** 编译成原生 JSON Schema：
+  作者在属性上写 `required: true`，编译后变成对象级的 `required: ["ok","message"]`。
+  恒等实现把 DSL 原样交给 `register()`，于是宿主报
+  `JsonSchemaError: schema.properties.ok.required is not supported on type "boolean"`。
+  这条抛错发生在 `apply()` 内部 → 宿主把整个条目判为未激活 →
+  `/ssh-terminal` 路由（注册在前）与技能（安装在前）都活着，**三个 ssh_* 工具一个都没到模型手上**。
+- **另一半**：`parameters` 同样被原样透传，模型拿到的是
+  `{ action: { type: "string", required: true } }` —— 连 `type: "object"` / `properties` 都没有，
+  根本不是一个 schema。即使只修 `output.schema`，工具也会「注册成功但参数不可读」。
+- **修复**：`lib/index.js` 里加了一份本地编译器（`compilePropertyMap` / `compileValueSchema`，
+  `defineTool` 改为调用它），产出与宿主 `defineTool` 完全一致的形状。
+  仍然**不 import 宿主**（0.7.3 的真实目标：脱离 DSH profile 也能加载/测试）。
+- **加固**：`registerToolSafely()` 不再把「重名」以外的注册失败重新抛出——
+  改为记一条 error 日志并跳过该工具。一个工具被拒只该损失一个工具，不该损失整条插件。
+- **测试**：新增 `tests/schema_test.mjs`（25 条断言）。它按宿主校验器的子集规则
+  （type/oneOf/properties/required/additionalProperties/items/enum/const + 4 个 annotation）
+  反向校验三个真实工具定义，并钉住 0.7.4 那个布尔 `required` 的坏形状确实违规。
+  `terminal_test.mjs` 里「无关注册错误仍会向外抛」的断言随之改写为「记 error 并继续」。
+- **验证**：用宿主真实加载器起一个最小 profile（dsh-base + dsh-web-app + 本插件）：
+  0.7.4 报 `3 entries did not activate`（含 ssh-shell），0.7.5 只剩两个与本插件无关的
+  `cc-hooks` 缺失，ssh-shell 正常激活。
+
 ## [0.7.4] — 2026-10-20
 
 修掉真正的运行时崩溃：**`TypeError: ctx.logger(...) is not a function`，

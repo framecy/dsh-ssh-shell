@@ -399,14 +399,20 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
   ok(/already registered/.test(warnings[0]?.[1] || ""), "the warning names the duplicate reason")
   eq(captured.length, 0, "nothing was registered when every name collided")
 
-  // An unrelated register() failure is still a real error: the guard is narrow.
+  // Any other register() rejection (an unsupported schema keyword, a reserved
+  // name, a host contract change) is logged at error level and skipped — it
+  // must NOT propagate either. A throw here is what made 0.7.4 load a working
+  // panel with zero model-facing tools: the host turns any apply() throw into
+  // "entry did not activate" and drops every registration after it.
+  const errors = []
   let otherThrew = null
   try {
     plugin.apply(
       {
         webServer: { registerUpgrade: () => {} },
         systemPrompt: { section: () => {} },
-        tools: { register: () => { throw new Error("tool registry exploded") } },
+        tools: { register: () => { throw new Error("JsonSchemaError: unsupported JSON schema") } },
+        logger: () => ({ warn: () => {}, info: () => {}, error: (message) => errors.push(message) }),
         get: () => undefined,
       },
       { installSkill: false },
@@ -414,7 +420,9 @@ eq(sessions.size, 0, "no sessions exist when nothing connected")
   } catch (error) {
     otherThrew = error
   }
-  eq(otherThrew?.message, "tool registry exploded", "unrelated registration errors still propagate")
+  eq(otherThrew, null, "an unrelated registration error does not fail apply()")
+  eq(errors.length, 3, "each rejected tool is reported at error level")
+  ok(/unsupported JSON schema/.test(errors[0] || ""), "the error log keeps the host's reason")
 }
 
 process.exit(summary("terminal_test") ? 0 : 1)
