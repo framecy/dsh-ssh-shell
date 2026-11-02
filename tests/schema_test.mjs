@@ -150,4 +150,27 @@ eq(
   "one host-rejected tool does not abort the other registrations",
 )
 
+// ---- the agent-facing usage contract ----
+
+// The prompt section is the only part of this plugin the model is guaranteed to
+// read; it is also what 0.7.4 lost entirely when the entry failed to activate.
+// Pin the content, so "the tools exist" and "the model knows how to use them"
+// cannot drift apart again.
+let section = null
+apply(
+  {
+    ...ctx,
+    systemPrompt: { section: (s) => { section = s } },
+  },
+  { installSkill: false },
+)
+eq(section?.name, "tool:ssh_remote", "registers one prompt section")
+for (const name of ["ssh_remote", "ssh_terminal_send", "ssh_terminal_read"]) {
+  ok(section.text.includes(name), `the prompt section names ${name}`)
+}
+ok(/action=status/.test(section.text), "the prompt section states the status-first rule")
+ok(/gui-panel/.test(section.text), "the prompt section explains that panel sessions are already authenticated")
+ok(/terminal_open/.test(section.text), "the prompt section warns off the built-in terminal tools")
+ok(section.text.split("\n").length >= 20, "the section is structured across lines, not one wall of text")
+
 process.exit(summary("schema_test") ? 0 : 1)

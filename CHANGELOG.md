@@ -29,6 +29,24 @@
 - **验证**：用宿主真实加载器起一个最小 profile（dsh-base + dsh-web-app + 本插件）：
   0.7.4 报 `3 entries did not activate`（含 ssh-shell），0.7.5 只剩两个与本插件无关的
   `cc-hooks` 缺失，ssh-shell 正常激活。
+  另外用宿主的 `renderToolsSdk` 生成模型实际看到的签名：0.7.4 是 **`ssh_remote: unknown`**
+  （模型根本不知道能传什么参数），0.7.5 是带 `enum` 与注释的完整对象类型。
+
+### Agent 使用说明
+
+- **system prompt 段重写**：原来是一段 1000+ 字、句子之间用空格拼起来的散文，
+  模型容易整段略过。现在是 5 条硬约束 + 一张三行工具清单：
+  ① 说「没有会话」前必须先 `action=status`；② 按会话归属选工具（面板 → `ssh_terminal_*`、
+  自己连的 → `exec`、长输出 → `run_in_background`）；③ 不要用内置 `terminal_*` 操作本插件的终端；
+  ④ `exec` 被审批拒绝不要重试；⑤ `status` 为空才让用户连面板或给连接信息。
+- **SKILL.md**：补 `ssh_remote` 参数速查（含返回字段与 `timedOut` 语义），
+  description 补英文触发词（"run this on the server" / "check the remote host"），
+  否则英文会话里这个 skill 不会被选中。
+- **README**：新增「Agent 使用说明」一节，说明这份说明的两处落点（system prompt 段 / skill）
+  以及为什么细节放 skill、只把硬约束放 prompt。
+- **面板文案**：首次连接且没给密码时，原来报「SSH 会话已过期，需要重新输入密码」——
+  从来没连过的人看到「已过期」只会觉得面板坏了。现在区分
+  「还没有连接 user@host，请输入密码」与真正的「已过期」。
 
 ## [0.7.4] — 2026-10-20
 

@@ -1,6 +1,6 @@
 ---
 name: ssh-shell
-description: Use the GUI terminal panel's live SSH session from the conversation — check whether the user already connected, type into that PTY, read its output, or connect a new host yourself. Triggers on "连上了但你看不到", "会话无法识别", "面板里的终端", "在面板里执行", "远端服务器" when the user connected via the right-edge 终端 tab rather than asking you to connect.
+description: Use the GUI terminal panel's live SSH session from the conversation — check whether the user already connected, type into that PTY, read its output, or connect a new host yourself. Triggers on "连上了但你看不到", "会话无法识别", "面板里的终端", "在面板里执行", "远端服务器", and on English asks like "run this on the server", "check the remote host", "ssh into it" — whenever the host may already be connected via the right-edge 终端 tab instead of you connecting it.
 whenToUse: Use whenever the user is talking about a remote server they connected through this plugin's terminal panel (right-edge 终端 tab), or asks you to run something on a host that may already be connected. Also use before ever telling the user "there is no session".
 ---
 
@@ -31,6 +31,22 @@ whenToUse: Use whenever the user is talking about a remote server they connected
 **绝对不要再问密码**，直接 `ssh_terminal_send` / `ssh_terminal_read`。
 
 `status` 返回 `no active ssh session` 才是真的没有。
+
+## ssh_remote 参数速查
+
+```
+ssh_remote { action: "status" }                                    # 先查，永远第一步
+ssh_remote { action: "connect", target: "root@1.2.3.4 -p 22222", password: "..." }
+ssh_remote { action: "exec", target: "root@1.2.3.4 -p 22222", command: "uptime" }
+ssh_remote { action: "exec", command: "tail -f /var/log/x.log", run_in_background: true }
+ssh_remote { action: "close", target: "root@1.2.3.4 -p 22222" }
+```
+
+- `target` 只在有多条会话时需要；只有一条时可以省。
+- `exec` 返回 `{ ok, message, cwd, stdout, stderr, exitCode, timedOut }`。
+  `timedOut: true` 时 **stdout 是超时前抓到的全部内容**，不是空的。
+- 远端 cwd 在 `exec` 之间保持；`cd` 过目录后下一条命令就在那个目录里。
+- 后台任务返回 `jobId`，用 `job_output` 增量读、`job_kill` 停。
 
 ## 操作面板会话
 

@@ -229,6 +229,11 @@ eq(a.of("error").length, 0, "close before attach does not raise an error")
   const err = b.last("status")
   ok(err && err.state === "error", "connect without a usable session reports a status=error frame")
   ok(/密码|password|过期/i.test(err.message), "the error explains that credentials are needed")
+  // First contact must not claim the session "expired" — there was nothing to
+  // expire. A brand-new user reading "会话已过期" reasonably concludes the
+  // panel is broken.
+  ok(/还没有连接/.test(err.message), "a first connect without a password says there is no session yet, not that it expired")
+  b.sendMsg({ type: "close" })
 }
 
 // ---------------------------------------------------------------------------

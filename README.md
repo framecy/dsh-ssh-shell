@@ -163,6 +163,29 @@ ssh_terminal_read   { clear: true }                               # 读增量
 
 转义：`\r` 回车、`\x03` Ctrl+C、`\x1b[A` 上箭头、`\t` Tab 补全。
 
+## Agent 使用说明（写进模型上下文的那份）
+
+光把工具注册上不够——模型得知道**先查、用哪个、什么时候别用**。这份说明有两处落点：
+
+| 落点 | 位置 | 什么时候进上下文 |
+|---|---|---|
+| system prompt 段 | `lib/index.js` 的 `ctx.systemPrompt.section({ name: "tool:ssh_remote" })` | 每个会话，永远在 |
+| skill | `skills/ssh-shell/SKILL.md`（apply 时复制到 `$DSH_HOME/skills/ssh-shell/`） | 模型主动 load 时 |
+
+system prompt 段是**硬约束**，只有 5 条：
+
+1. 说「没有会话」之前必须先 `ssh_remote action=status`；
+2. 按归属选工具——面板会话走 `ssh_terminal_*`，自己连的走 `ssh_remote exec`，长输出走 `run_in_background`；
+3. 别用内置 `terminal_*` 操作这个插件的终端；
+4. `exec` 被审批拒绝不要重试，改走 `ssh_terminal_send`；
+5. `status` 为空才让用户连面板或给连接信息。
+
+SKILL.md 承载细节（参数速查、转义表、排查表），不塞进 prompt，避免每个会话都烧 token。
+
+> 0.7.4 里这一段**整个消失了**：`systemPrompt.section` 是 cordis effect，
+> 工具注册抛错导致条目判为未激活，effect 被一并 dispose。
+> `tests/schema_test.mjs` 现在钉住这段的存在与内容。
+
 ## 设计取舍
 
 pty 归属于 **target**（`user@host:port`），不归属任何单个 WebSocket。理由：
